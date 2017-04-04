@@ -1,7 +1,7 @@
-using Knet,GZip,Compat
+using Knet,Images,Compat
 
 function main()
-	datapath = "./Data/Caltech_101/"; #take as an argument
+	datapath = "./Data/Caltech_101/101_ObjectCategories/"; #take as an argument
 	batchsize = 100; # take as an argument
 	
 	data, labels, categoryDict = readData(datapath);
@@ -100,17 +100,23 @@ function minibatch(x, y, batchsize)
 end
 
 function getImages(path)
-	imFiles = filter(x -> ismatch(r"\.jpg.gz", x), readdir(path));
+	imFiles = filter(x -> ismatch(r"\.jpg", x), readdir(path));
 	images = Any[];
+	longSideLength = 150;
 	
 	#need to normalize image sizes? they are all different
 	for imFile in imFiles 
-		# taken from lab
-		f = gzopen(path * "/" * imFile)
-		a = @compat read(f)
-		close(f)
-		a = convert(Array{Float32,1},a ./ 255);
-		push!(images,a);
+		# adapted from vgg.jl in Knet repo
+		rawImg = load(imFile)
+		newSize = ntuple(i->div(size(rawImg,i)*longSideLength,maximum(size(rawImg))),2)
+		finalSize = (size(newSize,1) * size(newSize,2) * 3, 1);
+		resizedImage = Images.imresize(rawImg, newSize)
+		channeledImage = permutedims(channelview(resizedImage), (3,2,1))
+		floatImage = convert(Array{Float32}, channeledImage)
+		shapedImage = reshape(d1[:,:,1:3],finalSize)
+		#normalizedImage = (255 * e1 .- averageImage) # do I need to do this?
+		
+		push!(images,shapedImage);
 	end
 	
 	return images';
