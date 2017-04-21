@@ -109,7 +109,7 @@ function getImages(path)
 		# adapted from vgg.jl in Knet repo
 		rawImg = load(imFile)
 		newSize = ntuple(i->div(size(rawImg,i)*longSideLength,maximum(size(rawImg))),2)
-		finalSize = (size(newSize,1) * size(newSize,2) * 3, 1);
+		finalSize = (newSize[1] * newSize[2] * 3, 1);
 		resizedImage = Images.imresize(rawImg, newSize)
 		channeledImage = permutedims(channelview(resizedImage), (3,2,1))
 		floatImage = convert(Array{Float32}, channeledImage)
