@@ -38,7 +38,7 @@ function main(;
     global filtersize = filtersize_
     global cd = cd_
 
-    state = train(input, model[1], model[2], model[3], real_input)
+    model, state = train(input, model[1], model[2], model[3], real_input)
     #also return optim if used
     return (model, state)
 end
@@ -70,9 +70,9 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
   for c = 1:cd
     # check here if real of binary
     if (real_input == 1)
-        visible = sample_visible_real(hidden_sample, filters, visible_bias, size(visible))
+        visible = SAMPLER.sample_visible_real(hidden_sample, filters, visible_bias, size(visible))
     else
-        visible = sample_visible_binary(hidden_sample, filters, visible_bias, size(visible))
+        visible = SAMPLER.sample_visible_binary(hidden_sample, filters, visible_bias, size(visible))
     end
 
     hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
@@ -104,11 +104,11 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
   visible_bias -= c_loss
 
   # check if model is updated
-  return (visible, hidden_sample, pool_sample)
+  return ([filters, hidden_bias, visible_bias], [visible, hidden_sample, pool_sample])
 end
 
 function sample_hidden(visible, filters, hidden_bias)
-  energies = SAMPLER.increase_in_energy(visible, filters, hidden_bias)
+  energies = SAMPLER.increase_in_energy_hidden(visible, filters, hidden_bias)
   num_filters = size(energies,3)
   hidden_width = size(energies,1)
   hidden_height = size(energies,2)
@@ -130,7 +130,7 @@ function sample_hidden(visible, filters, hidden_bias)
         h_width_indices = i * pool_size - 1:i * pool_size
         h_height_indices =  j * pool_size - 1:j*pool_size
 
-        hidden_post, pool_post = posterior_pool_group(energies[h_width_indices,h_height_indices, k, :])
+        hidden_post, pool_post = SAMPLER.calculate_posterior(energies[h_width_indices,h_height_indices, k, :], 0)
         hidden, pool = SAMPLER.sample_pool_group(hidden_post, pool_post)
 
         hidden_posts[h_width_indices,h_height_indices,k, 1] = hidden_post
@@ -146,49 +146,6 @@ end
 
 
 
-function sample_visible_binary(hidden, filters, visible_bias, visible_dims)
-    conv_sum = get_conv_sum(hidden, filters, visible_dims)
-    return sigm(conv_sum .+ visible_bias)
-end
 
-function get_conv_sum(hidden, filters, visible_dims)
-    num_groups = size(hidden, 3)
-    num_channels = visible_dims[3]
-
-    #assume square all arrays are square (hidden and filters here but the same assumption implicitly applies to the visible -> input)
-    out_dim = floor(size(hidden,1) - size(filters,1)) + 1
-    conv_sum = zeros(visible_dims[1], visible_dims[2], visible_dims[3], visible_dims[4])
-
-    # to keep the visible size the same
-    padd = Int((visible_dims[1] - out_dim) / 2)
-
-    # check if looping through channels makes sense
-    for channel=1:num_channels
-        for group=1:num_groups
-            h = reshape(hidden[:,:,group,:], size(hidden, 1), size(hidden, 2), 1, size(hidden, 4))
-            w = reshape(filters[:,:,channel,group], size(filters, 1), size(filters, 2), 1, 1)
-            conv_sum[:,:,channel,:] += conv4(w, h; padding = padd)
-        end
-    end
-
-    return conv_sum
-end
-
-function sample_visible_real(hidden, filters, visible_bias, visible_dims)
-    conv_sum = get_conv_sum(hidden, filters, visible_dims)
-    return conv_sum .+ visible_bias
-end
-
-# calculates p(pool unit = 0|v) p(hidden unit = 1|v)
-function posterior_pool_group(energies)
-    # normalize log
-    exp_energies = exp(energies)
-    sum_exp_energies = sum(exp_energies) # sum along both dimensions
-
-    prob_hidden_one = exp_energies ./ sum_exp_energies
-    prob_pool_zero = 1/ (1 + sum_exp_energies)
-
-    return (prob_hidden_one, prob_pool_zero)
-end
 
 end
