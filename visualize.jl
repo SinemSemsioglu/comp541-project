@@ -5,7 +5,7 @@ using ImageView
 
 function visualize_filter(filter)
     shifted = filter - minimum(filter)
-    normalized = filter / maximum(filter)
+    normalized = shifted / maximum(shifted)
     imshow(normalized)
 end
 

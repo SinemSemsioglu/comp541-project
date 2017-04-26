@@ -100,8 +100,18 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
   c_loss = 1/size(visible,1)^2 * sum(visible_org - visible, (1,2,4))
 
   filters -= gradient_lr * g_loss
-  hidden_bias -= gradient_lr * b_loss + sparsity_lr * b_sparsity_reg
+  hidden_bias -= gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
   visible_bias -= c_loss
+
+#SAMPLER.find_nan_and_replace(filters, 0)
+# SAMPLER.find_nan_and_replace(hidden_bias, 0)
+# SAMPLER.find_nan_and_replace(visible_bias, 0)
+
+# SAMPLER.find_inf_and_replace(filters, 1,0)
+# SAMPLER.find_inf_and_replace(hidden_bias, 1,0)
+# SAMPLER.find_inf_and_replace(visible_bias, 1,0)
+
+
 
   # check if model is updated
   return ([filters, hidden_bias, visible_bias], [visible, hidden_sample, pool_sample])

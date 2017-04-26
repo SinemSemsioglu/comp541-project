@@ -1,5 +1,5 @@
 module READ_IMAGES
-export get_square_color_images
+export get_square_color_images, resize_images
 
 using Images
 
@@ -32,6 +32,17 @@ function get_square_color_images(path, file_type, im_size)
     end
 
     return images;
+end
+
+function resize_images(images, new_size)
+    num_images = size(images, 4)
+    resized_images = Array{Float64}(new_size[1], new_size[2], new_size[3], num_images)
+
+    for im_index=1:num_images
+        resized_images[:,:,:,im_index] = Images.imresize(images[:,:,:,im_index], new_size)
+    end
+
+    return resized_images
 end
 
 end
