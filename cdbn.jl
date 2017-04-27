@@ -73,10 +73,10 @@ function main(;
         num_filters = size(bottom_hidden,3)
 
         # 1's below should be replaced by batch size
-        # hidden_samples = Array{Float64}(hidden_width, hidden_height, num_filters, 1)
-        pool_samples = Array{Float64}(sample_width, sample_height, num_filters, 1)
-        #hidden_posts = Array{Float64}(hidden_width, hidden_height, num_filters, 1)
-        #pool_posts = Array{Float64}(sample_width, sample_height, num_filters, 1)
+        # hidden_samples = zeros(hidden_width, hidden_height, num_filters, 1)
+        pool_samples = zeros(sample_width, sample_height, num_filters, 1)
+        #hidden_posts = zeros(hidden_width, hidden_height, num_filters, 1)
+        #pool_posts = zeros(sample_width, sample_height, num_filters, 1)
 
         for k=1:size(bottom_hidden, 3)
             for i=1:sample_width

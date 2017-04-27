@@ -56,7 +56,7 @@ function initmodel(input, filtersize, numfilters; winit=0.001)
   num_channels = size(input,3)
   filters = winit * randn(Float64, filtersize, filtersize, num_channels, numfilters)
   hidden_bias = zeros(Float64, 1,1,numfilters,1)
-  visible_bias = randn(Float64, 1,1,num_channels,1); #check dimensions for This
+  visible_bias = zeros(Float64, 1,1,num_channels,1); #check dimensions for This
 
   return (filters, hidden_bias, visible_bias)
 end
@@ -69,7 +69,7 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
 
   for c = 1:cd
     # check here if real of binary
-    if (real_input == 1)
+    if (real_input == true)
         visible = SAMPLER.sample_visible_real(hidden_sample, filters, visible_bias, size(visible))
     else
         visible = SAMPLER.sample_visible_binary(hidden_sample, filters, visible_bias, size(visible))
@@ -81,16 +81,21 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
   #update weights
   norm_d = 1/size(hidden_post,1)^2 # normalizing denominator
 
-  g_loss = Array{Float64}(size(filters))
+  g_loss = zeros(size(filters))
+#print("num NaNs in gloss ", sum(map(x->isnan(x),g_loss)), "\n")
+# num_nans = 0
+
   for c=1:size(visible,3)
-    for k=1:size(filters,3)
+    for k=1:size(filters,4)
         h_org = reshape(hidden_post_org[:,:,k,1], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
         h = reshape(hidden_post[:,:,k,1], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
 
         v_org = reshape(visible_org[:,:,c,:], size(visible,1), size(visible,2), 1, size(visible,4))
         v = reshape(visible[:,:,c,:], size(visible,1), size(visible,2), 1, size(visible,4))
 
-        g_loss[:,:,c,k] = norm_d * (conv4(h_org, v_org; mode=1) - conv4(h, v; mode=1))
+        losses = norm_d * (conv4(h_org, v_org; mode=1) - conv4(h, v; mode=1))
+#       num_nans += sum(map(x->isnan(x),losses))
+        g_loss[:,:,c,k] = losses
     end
   end
 
@@ -102,6 +107,14 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
   filters -= gradient_lr * g_loss
   hidden_bias -= gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
   visible_bias -= c_loss
+
+#    print("num NaNs calculated in gloss ", num_nans, "\n")
+#    print("num NaNs in gloss ", sum(map(x->isnan(x),g_loss)), "\n")
+#    print("num NaNs in filters ", sum(map(x->isnan(x),filters)), "\n")
+#    print("num NaNs in bloss ", sum(map(x->isnan(x),b_loss)), "\n")
+#    print("num NaNs in hidden_bias ", sum(map(x->isnan(x),hidden_bias)), "\n")
+#    print("num NaNs in closs ", sum(map(x->isnan(x),c_loss)), "\n")
+#    print("num NaNs in visible_bias ", sum(map(x->isnan(x),visible_bias)), "\n")
 
 #SAMPLER.find_nan_and_replace(filters, 0)
 # SAMPLER.find_nan_and_replace(hidden_bias, 0)
@@ -128,10 +141,10 @@ function sample_hidden(visible, filters, hidden_bias)
   sample_height = Int(floor(hidden_width/pool_size))
 
 # 1's below should be replaced by batch size
-  hidden_samples = Array{Float64}(hidden_width, hidden_height, num_filters, 1)
-  pool_samples = Array{Float64}(sample_width, sample_height, num_filters, 1)
-  hidden_posts = Array{Float64}(hidden_width, hidden_height, num_filters, 1)
-  pool_posts = Array{Float64}(sample_width, sample_height, num_filters, 1)
+  hidden_samples = zeros(hidden_width, hidden_height, num_filters, 1)
+  pool_samples = zeros(sample_width, sample_height, num_filters, 1)
+  hidden_posts = zeros(hidden_width, hidden_height, num_filters, 1)
+  pool_posts = zeros(sample_width, sample_height, num_filters, 1)
 
   for k=1:size(energies,3)
     for i=1:sample_width

@@ -4,8 +4,9 @@ using Knet
 export increase_in_energy_hidden, increase_in_energy_pool, sample_pool_group, sample_visible_binary, sample_visible_real, calculate_posterior, find_nan_and_replace, find_inf_and_replace
 
 function sample_visible_binary(hidden, filters, visible_bias, visible_dims)
-conv_sum = get_conv_sum(hidden, filters, visible_dims)
-return sigm(conv_sum .+ visible_bias)
+    conv_sum = get_conv_sum(hidden, filters, visible_dims)
+    prob = sigm(conv_sum .+ visible_bias)
+    return float(map(x -> rand() > x ? 1 :0, prob))
 end
 
 function get_conv_sum(hidden, filters, visible_dims)
@@ -38,8 +39,8 @@ end
 
 function increase_in_energy_hidden(visible, filters, hidden_bias)
     d = size(visible, 1) - size(filters,1) + 1
-    e = Array{Float64}(d,d,size(filters,4),size(visible,4))
-    f = Array{Float64}(size(filters,1), size(filters,2), size(filters,3),1)
+    e = zeros(d,d,size(filters,4),size(visible,4))
+    f = zeros(size(filters,1), size(filters,2), size(filters,3),1)
     for i = 1:size(filters,4)
         f[:,:,:] = filters[:,:,:,i]
         e[:,:,i,:] = conv4(f, visible, mode = 1) .+ hidden_bias[1,1,i,1]
@@ -91,7 +92,7 @@ end
 function increase_in_energy_pool(weight, hidden, pool_dims)
     num_groups = size(weight,3)
     num_channels = size(hidden,3)
-    energies = Array{Float64}(pool_dims)
+    energies = zeros(pool_dims)
 
     for k=1:num_groups
     out_dim = size(hidden,1) - size(weight,1) + 1 # assume square
