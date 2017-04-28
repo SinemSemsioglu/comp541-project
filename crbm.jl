@@ -82,19 +82,16 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
   norm_d = 1/size(hidden_post,1)^2 # normalizing denominator
 
   g_loss = zeros(size(filters))
-#print("num NaNs in gloss ", sum(map(x->isnan(x),g_loss)), "\n")
-# num_nans = 0
 
   for c=1:size(visible,3)
     for k=1:size(filters,4)
-        h_org = reshape(hidden_post_org[:,:,k,1], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
-        h = reshape(hidden_post[:,:,k,1], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
+        h_org = reshape(hidden_post_org[:,:,k,:], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
+        h = reshape(hidden_post[:,:,k,:], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
 
         v_org = reshape(visible_org[:,:,c,:], size(visible,1), size(visible,2), 1, size(visible,4))
         v = reshape(visible[:,:,c,:], size(visible,1), size(visible,2), 1, size(visible,4))
 
         losses = norm_d * (conv4(h_org, v_org; mode=1) - conv4(h, v; mode=1))
-#       num_nans += sum(map(x->isnan(x),losses))
         g_loss[:,:,c,k] = losses
     end
   end
@@ -102,29 +99,11 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
 
   b_sparsity_reg = sparsity - norm_d * sum(hidden_post, (1, 2, 4))
   b_loss = norm_d * sum(hidden_post_org - hidden_post, (1,2,4))
-  c_loss = 1/size(visible,1)^2 * sum(visible_org - visible, (1,2,4))
+  c_loss = (1/size(visible,1)^2) * sum(visible_org - visible, (1,2,4))
 
-  filters -= gradient_lr * g_loss
-  hidden_bias -= gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
-  visible_bias -= c_loss
-
-#    print("num NaNs calculated in gloss ", num_nans, "\n")
-#    print("num NaNs in gloss ", sum(map(x->isnan(x),g_loss)), "\n")
-#    print("num NaNs in filters ", sum(map(x->isnan(x),filters)), "\n")
-#    print("num NaNs in bloss ", sum(map(x->isnan(x),b_loss)), "\n")
-#    print("num NaNs in hidden_bias ", sum(map(x->isnan(x),hidden_bias)), "\n")
-#    print("num NaNs in closs ", sum(map(x->isnan(x),c_loss)), "\n")
-#    print("num NaNs in visible_bias ", sum(map(x->isnan(x),visible_bias)), "\n")
-
-#SAMPLER.find_nan_and_replace(filters, 0)
-# SAMPLER.find_nan_and_replace(hidden_bias, 0)
-# SAMPLER.find_nan_and_replace(visible_bias, 0)
-
-# SAMPLER.find_inf_and_replace(filters, 1,0)
-# SAMPLER.find_inf_and_replace(hidden_bias, 1,0)
-# SAMPLER.find_inf_and_replace(visible_bias, 1,0)
-
-
+  filters += gradient_lr * g_loss
+  hidden_bias += gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
+  visible_bias += c_loss
 
   # check if model is updated
   return ([filters, hidden_bias, visible_bias], [visible, hidden_sample, pool_sample])
