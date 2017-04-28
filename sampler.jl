@@ -1,40 +1,42 @@
 module SAMPLER
-using Knet
+using Knet, Distributions
 
 export increase_in_energy_hidden, increase_in_energy_pool, sample_pool_group, sample_visible_binary, sample_visible_real, calculate_posterior, find_nan_and_replace, find_inf_and_replace
 
 function sample_visible_binary(hidden, filters, visible_bias, visible_dims)
     conv_sum = get_conv_sum(hidden, filters, visible_dims)
     prob = sigm(conv_sum .+ visible_bias)
-    return float(map(x -> rand() > x ? 1 :0, prob))
+    return float(map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1 , prob))
 end
 
 function get_conv_sum(hidden, filters, visible_dims)
-num_groups = size(hidden, 3)
-num_channels = visible_dims[3]
+    num_groups = size(hidden, 3)
+    num_channels = visible_dims[3]
 
-#assume square all arrays are square (hidden and filters here but the same assumption implicitly applies to the visible -> input)
-out_dim = floor(size(hidden,1) - size(filters,1)) + 1
-conv_sum = zeros(visible_dims[1], visible_dims[2], visible_dims[3], visible_dims[4])
+    #assume square all arrays are square (hidden and filters here but the same assumption implicitly applies to the visible -> input)
+    out_dim = floor(size(hidden,1) - size(filters,1)) + 1
+    conv_sum = zeros(visible_dims[1], visible_dims[2], visible_dims[3], visible_dims[4])
 
-# to keep the visible size the same
-padd = Int((visible_dims[1] - out_dim) / 2)
+    # to keep the visible size the same
+    padd = Int((visible_dims[1] - out_dim) / 2)
 
-# check if looping through channels makes sense
-for channel=1:num_channels
-    for group=1:num_groups
-        h = reshape(hidden[:,:,group,:], size(hidden, 1), size(hidden, 2), 1, size(hidden, 4))
-        w = reshape(filters[:,:,channel,group], size(filters, 1), size(filters, 2), 1, 1)
-        conv_sum[:,:,channel,:] += conv4(w, h; padding = padd)
+    # check if looping through channels makes sense
+    for channel=1:num_channels
+        for group=1:num_groups
+            h = reshape(hidden[:,:,group,:], size(hidden, 1), size(hidden, 2), 1, size(hidden, 4))
+            w = reshape(filters[:,:,channel,group], size(filters, 1), size(filters, 2), 1, 1)
+            conv_sum[:,:,channel,:] += conv4(w, h; padding = padd)
+        end
     end
-end
 
-return conv_sum
+    return conv_sum
 end
 
 function sample_visible_real(hidden, filters, visible_bias, visible_dims)
     conv_sum = get_conv_sum(hidden, filters, visible_dims)
-    return conv_sum .+ visible_bias
+    means = conv_sum .+ visible_bias
+    samples = map(x-> rand(Normal(x,1),1)[1], means)
+    return samples
 end
 
 function increase_in_energy_hidden(visible, filters, hidden_bias)
@@ -50,9 +52,26 @@ function increase_in_energy_hidden(visible, filters, hidden_bias)
 end
 
 function sample_pool_group(prob_hidden_one, prob_pool_zero)
-    sample_hidden_one = map(x-> rand() > x ? 1 : 0, prob_hidden_one)
-    sample_pool_zero = rand() > prob_pool_zero ? 1: 0
-    return (sample_hidden_one, sample_pool_zero)
+#sample_hidden = map(x-> rand() > x ? 1 : 0, prob_hidden_one)
+    sample_hidden = map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1, prob_hidden_one)
+    one_indices = find(sample_hidden)
+
+    # only 1 of them should be zero
+    if (size(one_indices,1) > 1 )
+        # hidden variable to keep as one
+        rand_one_index = rand(1:size(one_indices,1))
+        rest_ones = [one_indices[1: (rand_one_index - 1)] ; one_indices[(rand_one_index + 1): end]]
+
+        for rest_one in rest_ones
+            row = mod(rest_one - 1 , size(sample_hidden, 1)) + 1
+            col = div(rest_one - 1, size(sample_hidden,2)) +1
+            sample_hidden[row,col] = float(0)
+        end
+    end
+
+    # if I am sampling by looking at the hidden units, then I don't need the prob distro?
+    sample_pool = sum(sample_hidden)
+    return (sample_hidden, sample_pool)
 end
 
 
