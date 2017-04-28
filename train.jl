@@ -6,6 +6,7 @@ export main
 
 function main(;
                 images=rand(100,100,1,100), # mock data of 100 instances of 100x100 images
+                initial_model=[],
                 numlayers=2,
                 filtersize=[10,10],
                 numfilters=[24,100],
@@ -35,6 +36,8 @@ function main(;
         if imIndex > 1
             prev_modelz = models[imIndex-1]
             modelz, statez, poolz = CDBN.main(input=image, numlayers=numlayers, numfilters=numfilters, pool=pool, sparsity=sparsity, gradient_lr=gradient_lr, sparsity_lr=sparsity_lr, cd=cd, batch=1, mode=0, modelz=prev_modelz)
+        elseif size(initial_model,1) >0
+             modelz, statez, poolz = CDBN.main(input=image, numlayers=numlayers, numfilters=numfilters, pool=pool, sparsity=sparsity, gradient_lr=gradient_lr, sparsity_lr=sparsity_lr, cd=cd, batch=1, modelz=initial_model, mode=0)
         else
             modelz, statez, poolz = CDBN.main(input=image, numlayers=numlayers, numfilters=numfilters, pool=pool, sparsity=sparsity, gradient_lr=gradient_lr, sparsity_lr=sparsity_lr, cd=cd, batch=1, mode=0)
         end
