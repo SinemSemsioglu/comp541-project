@@ -6,8 +6,9 @@ export main
 
 function main(;
               mode=0, #will there be more than one modes, maybe for real binary visible
+              return_mode = 0, # 0 for training, 1 for activations
               cd_=1, #contrastive divergence
-#batch=1, will this always be one image?
+                #batch=1, will this always be one image?
               filtersize_=10, #assume square
               numfilters_=24,
               sparsity_=0.003,
@@ -17,7 +18,7 @@ function main(;
               input=rand(100,100,1,1), #how will this parameter be?
               winit = 0.001,
               #otype="Adam()",
-              atype=(gpu()>=0 ? KnetArray{Float32} : Array{Float32}),
+              atype_=(gpu()>=0 ? KnetArray{Float64} : Array{Float64}),
               model=initmodel(input, filtersize_, numfilters_),
               #state=initstate(model,batch), do I need a state?
               #optim=initoptim(model,otype), will I need opt.
@@ -37,10 +38,25 @@ function main(;
     global numfilters = numfilters_
     global filtersize = filtersize_
     global cd = cd_
+    global atype = atype_
 
-    model, state = train(input, model[1], model[2], model[3], real_input)
+#print(" return mode: ", return_mode, " mode: ", mode);
+
+    if return_mode == 0
+        model, state = train(input, model[1], model[2], model[3], real_input)
+    elseif return_mode == 1
+        model,state = get_activations(input, model[1], model[2], model[3])
+    end
+
     #also return optim if used
     return (model, state)
+end
+
+# in order to be used for SVM this will calculate the pool activations without training
+function get_activations(visible, filters, hidden_bias, visible_bias)
+    hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
+
+    return ([filters, hidden_bias, visible_bias], [visible, hidden_sample, pool_sample])
 end
 
 #initialize weights
@@ -62,7 +78,9 @@ function initmodel(input, filtersize, numfilters; winit=0.001)
 end
 
 function train(visible, filters, hidden_bias, visible_bias, real_input)
-  hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
+#print(" gradient lr: ", gradient_lr, " numfilters: ", numfilters, " filtersize: ", filtersize, " pool: ", pool_size, "\n");
+
+hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
 
   hidden_post_org = copy(hidden_post)
   visible_org = copy(visible)
@@ -96,12 +114,15 @@ function train(visible, filters, hidden_bias, visible_bias, real_input)
     end
   end
 
+#print("reconstruction error: ", mean((visible_org - visible).^2), "\n")
+# print("sparsity: ", sum(hidden_sample)/ (size(hidden_sample,1)* size(hidden_sample,2)*size(hidden_sample,3)*size(hidden_sample,4)), "\n")
+
 
   b_sparsity_reg = sparsity - norm_d * sum(hidden_post, (1, 2, 4))
   b_loss = norm_d * sum(hidden_post_org - hidden_post, (1,2,4))
   c_loss = (1/size(visible,1)^2) * sum(visible_org - visible, (1,2,4))
 
-  filters += gradient_lr * g_loss
+  filters += gradient_lr * (g_loss .- 0.01 * abs(filters) - 0 * (map(x-> x > 0 ? 1:0, filters)*2-1))
   hidden_bias += gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
   visible_bias += c_loss
 

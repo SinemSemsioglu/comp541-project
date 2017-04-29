@@ -18,9 +18,19 @@ function main(;
                 sparsity_lr=5,
                 cd=1,
                 batch=1,
+                return_mode=0, # 0 for training, 1 for activations
                 mode=0 #input is real for mode 0, binary for mode 1
                 )
 
+#print("cdbn filtersizes: ", filtersize, "\n");
+    if return_mode == 0
+        return train(input, numlayers, filtersize, numfilters, pool, modelz, sparsity, gradient_lr, sparsity_lr, cd, batch, mode, return_mode)
+    elseif return_mode == 1
+        return get_pool_activations(input, modelz, numlayers, pool, return_mode)
+    end
+end
+
+function train(input, numlayers, filtersize, numfilters, pool, modelz, sparsity, gradient_lr, sparsity_lr, cd, batch, mode, return_mode)
     models = Any[]
     states = Any[]
 
@@ -29,21 +39,50 @@ function main(;
             mode = 1
             prev_pool = states[layer-1][3]
             if(size(modelz,1) != 0)
-                model,state = CRBM.main(;mode=mode,cd_=cd, filtersize_=filtersize[layer],  numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, pool_=pool[layer], input=prev_pool, model=modelz[layer])
+                model,state = CRBM.main(;mode=mode,return_mode=return_mode, cd_=cd, filtersize_=filtersize[layer],  numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, pool_=pool[layer], input=prev_pool, model=modelz[layer])
             else
-                model,state = CRBM.main(;mode=mode,cd_=cd, filtersize_=filtersize[layer], numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, pool_=pool[layer], input=prev_pool)
+                model,state = CRBM.main(;mode=mode, return_mode = return_mode, cd_=cd, filtersize_=filtersize[layer], numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, pool_=pool[layer], input=prev_pool)
             end
         else
             if(size(modelz,1) != 0)
-                 model,state = CRBM.main(;mode=mode,cd_=cd, filtersize_=filtersize[layer], numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr,cd_=cd, pool_=pool[layer],input=input,model=modelz[layer])
+                 model,state = CRBM.main(;mode=mode, return_mode = return_mode, cd_=cd, filtersize_=filtersize[layer], numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, pool_=pool[layer],input=input,model=modelz[layer])
             else
-                model,state = CRBM.main(;mode=mode,cd_=cd, filtersize_=filtersize[layer], numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr,cd_=cd, pool_=pool[layer],input=input)
+                model,state = CRBM.main(;mode=mode, return_mode = return_mode, cd_=cd, filtersize_=filtersize[layer], numfilters_=numfilters[layer], sparsity_=sparsity[layer], gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, pool_=pool[layer],input=input)
             end
         end
 
         push!(models, model)
         push!(states, state)
     end
+
+    return models, states
+end
+
+function get_pool_activations(input, modelz, numlayers, pool, return_mode)
+    states = get_image_states(input, modelz, numlayers, pool, return_mode)
+    pools = calculate_pool_activations(modelz, states, numlayers, pool)
+    return pools
+end
+
+function get_image_states(input, modelz, numlayers, pool, return_mode)
+    states = Any[]
+
+    for layer = 1:numlayers
+        if(layer > 1)
+            mode = 1
+            prev_pool = states[layer-1][3]
+            model,state = CRBM.main(; return_mode = return_mode, pool_=pool[layer], input=prev_pool, model=modelz[layer])
+        else
+            model,state = CRBM.main(; return_mode = return_mode, pool_=pool[layer],input=input,model=modelz[layer])
+        end
+
+        push!(states, state)
+    end
+
+    return states
+end
+
+function calculate_pool_activations(models, states, numlayers, pool)
 
     # for efficiency the energies calculated during training can also be returned
     # this can be taken into the previous loop
@@ -98,8 +137,7 @@ function main(;
         push!(poolz, pool_samples)
     end
 
-    return (models, states, poolz)
-
+    return poolz
 end
 
 end
