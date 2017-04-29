@@ -15,13 +15,13 @@ function write_libsvm(filepath, data, labels, one_hot)
 
     for row=1:num_rows
         ce_row = data[row,:]
-        write(f, string(labels[row]))
+        write(f, string("+", labels[row]))
 
         for col=1:num_cols
             value = ce_row[col]
-            if (value != 0)
+# if (value != 0)
                 write(f, " ", string(col), ":", string(value))
-            end
+#           end
         end
         write(f, "\n")
     end
@@ -30,10 +30,10 @@ end
 
 function convert_one_hot_to_class(labels)
     num_labels = size(labels,2)
-    labels_vector = Array{Float64}(num_labels)
+    labels_vector = Array{Int}(num_labels)
     for label_index=1:num_labels
         label_vector = labels[:,label_index]
-        labels_vector[label_index] = find(label_vector)[1]
+        labels_vector[label_index] = Int(find(label_vector)[1])
     end
 
     return labels_vector
