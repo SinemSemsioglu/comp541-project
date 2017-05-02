@@ -20,8 +20,8 @@ function main(;
               #otype="Adam()",
               atype_=(gpu()>=0 ? KnetArray{Float64} : Array{Float64}),
               model=initmodel(input, filtersize_, numfilters_),
-              #state=initstate(model,batch), do I need a state?
-              #optim=initoptim(model,otype), will I need opt.
+              #state=initstate(model), do I need a state?
+              optim=initoptim(model) #will I need opt.
               )
     if mode == 0
         real_input = true
@@ -43,13 +43,13 @@ function main(;
 #print(" return mode: ", return_mode, " mode: ", mode);
 
     if return_mode == 0
-        model, state = train(input, model[1], model[2], model[3], real_input)
+        model, state, optim = train(input, model, real_input, optim)
     elseif return_mode == 1
         model,state = get_activations(input, model[1], model[2], model[3])
     end
 
     #also return optim if used
-    return (model, state)
+    return (model, state, optim)
 end
 
 # in order to be used for SVM this will calculate the pool activations without training
@@ -57,6 +57,15 @@ function get_activations(visible, filters, hidden_bias, visible_bias)
     hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
 
     return ([filters, hidden_bias, visible_bias], [visible, hidden_sample, pool_sample])
+end
+
+function initoptim(model)
+    optim_array = Any[]
+    for m in model
+        push!(optim_array, Adam())
+    end
+
+    return optim_array
 end
 
 #initialize weights
@@ -74,13 +83,13 @@ function initmodel(input, filtersize, numfilters; winit=0.001)
   hidden_bias = zeros(Float64, 1,1,numfilters,1)
   visible_bias = zeros(Float64, 1,1,num_channels,1); #check dimensions for This
 
-  return (filters, hidden_bias, visible_bias)
+  return [filters, hidden_bias, visible_bias]
 end
 
-function train(visible, filters, hidden_bias, visible_bias, real_input)
+function train(visible, model, real_input, optim)
 #print(" gradient lr: ", gradient_lr, " numfilters: ", numfilters, " filtersize: ", filtersize, " pool: ", pool_size, "\n");
 
-hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
+  hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, model[1], model[2])
 
   hidden_post_org = copy(hidden_post)
   visible_org = copy(visible)
@@ -88,21 +97,21 @@ hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filt
   for c = 1:cd
     # check here if real of binary
     if (real_input == true)
-        visible = SAMPLER.sample_visible_real(hidden_sample, filters, visible_bias, size(visible))
+        visible = SAMPLER.sample_visible_real(hidden_sample, model[1], model[3], size(visible))
     else
-        visible = SAMPLER.sample_visible_binary(hidden_sample, filters, visible_bias, size(visible))
+        visible = SAMPLER.sample_visible_binary(hidden_sample, model[1], model[3], size(visible))
     end
 
-    hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filters, hidden_bias)
+    hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, model[1], model[2])
   end
 
   #update weights
   norm_d = 1/size(hidden_post,1)^2 # normalizing denominator
 
-  g_loss = zeros(size(filters))
+  g_loss = zeros(size(model[1]))
 
   for c=1:size(visible,3)
-    for k=1:size(filters,4)
+    for k=1:size(model[1],4)
         h_org = reshape(hidden_post_org[:,:,k,:], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
         h = reshape(hidden_post[:,:,k,:], size(hidden_post,1), size(hidden_post,2), 1, size(hidden_post,4))
 
@@ -120,14 +129,16 @@ hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, filt
 
   b_sparsity_reg = sparsity - norm_d * sum(hidden_post, (1, 2, 4))
   b_loss = norm_d * sum(hidden_post_org - hidden_post, (1,2,4))
+  b_total = b_loss - sparsity_lr * b_sparsity_reg
   c_loss = (1/size(visible,1)^2) * sum(visible_org - visible, (1,2,4))
 
-  filters += gradient_lr * (g_loss .- 0.01 * abs(filters) - 0 * (map(x-> x > 0 ? 1:0, filters)*2-1))
-  hidden_bias += gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
-  visible_bias += c_loss
+  update!(model, [-g_loss, -b_total, -c_loss], optim)
 
-  # check if model is updated
-  return ([filters, hidden_bias, visible_bias], [visible, hidden_sample, pool_sample])
+# filters += gradient_lr * (g_loss .- 0.01 * abs(filters) - 0 * (map(x-> x > 0 ? 1:0, filters)*2-1))
+#  hidden_bias += gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
+#  visible_bias += c_loss
+
+  return (model, [visible, hidden_sample, pool_sample], optim)
 end
 
 function sample_hidden(visible, filters, hidden_bias)

@@ -2,7 +2,7 @@ module ACTIVATIONS
 using Knet
 import CDBN, WRITE_LIBSVM
 
-export main
+export main, write_training_data
 
 function main(;
     images=rand(100,100,1,100), # mock data of 100 instances of 100x100 images
@@ -41,6 +41,11 @@ function main(;
 
 end
 
+function write_training_data(feature_path, pools, labels, num_layers, one_hot)
+    data = convert_to_data_matrix_2(pools)
+    WRITE_LIBSVM.write_libsvm(feature_path, data, labels, one_hot)
+end
+
 function convert_to_data_matrix(poolz, num_layers)
     num_instances = size(poolz,1);
     vector_size, pool_sizes = get_size_feature_vector(poolz[1], num_layers)
@@ -58,6 +63,40 @@ function convert_to_data_matrix(poolz, num_layers)
     end
 
     return data_arr
+end
+
+# I probably don't need 2 since the arguments are different, check that
+function convert_to_data_matrix_2(poolz)
+    num_layers = size(poolz,1)
+    num_instances = size(poolz[1],4)
+    vector_size, pool_sizes = get_size_feature_vector_2(poolz, num_layers)
+    data_arr = Array{Float64}(num_instances, vector_size)
+
+    for p=1:num_instances
+        po = poolz[1]
+        f = reshape(po[:,:,:,p], 1, pool_sizes[1])
+
+        for l=2:num_layers
+            po = poolz[l]
+            f = [f reshape(po[:,:,:,p], 1, pool_sizes[l])]
+        end
+
+        data_arr[p,:] = f
+    end
+
+    return data_arr
+end
+
+function get_size_feature_vector_2(pools, num_layers)
+    vector_size = 0
+    pool_sizes = Any[]
+    for layer_index=1:num_layers
+        pool_size = size(pools[layer_index][:,:,:,1])
+        pool_size_mult = multiply_size(pool_size)
+        push!(pool_sizes, pool_size_mult)
+        vector_size += pool_size_mult
+    end
+    return vector_size, pool_sizes
 end
 
 function get_size_feature_vector(pools, num_layers)

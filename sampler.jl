@@ -137,12 +137,12 @@ function find_inf_and_replace(matrix, r_max, r_min)
     n_row_indices = mod(n_inf_indices - 1 , size(matrix, 1)) + 1
     n_col_indices = div(n_inf_indices - 1, size(matrix,2)) +1
 
-    for i in inf_indices
+    for i=1:size(inf_indices,1)
         matrix[i_row_indices[i], i_col_indices[i]] = r_max
     end
 
-    for i in n_inf_indices
-        prob_hidden_one[n_row_indices[i], n_col_indices[i]] = r_min
+    for i=1:size(n_inf_indices,1)
+        matrix[n_row_indices[i], n_col_indices[i]] = r_min
     end
 
     return matrix
@@ -155,7 +155,7 @@ function find_nan_and_replace(matrix, r)
     row_indices = mod(nan_indices - 1 , size(matrix, 1)) + 1
     col_indices = div(nan_indices - 1, size(matrix,2)) +1
 
-    for i in nan_indices
+    for i=1:size(nan_indices,1)
         matrix[row_indices[i], col_indices[i]] = r
     end
 

@@ -4,7 +4,7 @@ export get_square_color_images, resize_images
 using Images
 
 #file_type 0 for jpg, 1 for png
-function get_square_color_images(path, file_type, im_size)
+function get_square_color_images(path, file_type, im_size, grayscale)
     if file_type == 0
         imFiles = filter(x -> ismatch(r"\.jpg", x), readdir(path));
     elseif file_type == 1
@@ -13,7 +13,13 @@ function get_square_color_images(path, file_type, im_size)
 
     imFiles = map(x-> string(path, x), imFiles)
     numImages = size(imFiles,1)
-    images = Array{Float64}(im_size, im_size, 3, numImages)
+    if grayscale == 1
+        numchannels = 1
+    else
+        numchannels = 3
+    end
+
+    images = Array{Float64}(im_size, im_size, numchannels, numImages)
 
     #need to normalize image sizes? they are all different
     for imIndex=1:numImages
@@ -25,7 +31,12 @@ function get_square_color_images(path, file_type, im_size)
         w = div(size(resizedImage,1)-im_size,2)
         h = div(size(resizedImage,2)-im_size,2)
         squaredImage = resizedImage[w+1:w+im_size,h+1:h+im_size]
-        channeledImage = permutedims(channelview(squaredImage), (3,2,1))
+        if grayscale == 1
+            channeledImage = convert(Image{Gray}, squaredImage)
+        else
+            channeledImage = permutedims(channelview(squaredImage), (3,2,1))
+        end
+
         floatImage = convert(Array{Float32}, channeledImage)
 
         images[:,:,:, imIndex] = floatImage;
