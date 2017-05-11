@@ -40,16 +40,18 @@ function main(;
     global cd = cd_
     global atype = atype_
 
-#print(" return mode: ", return_mode, " mode: ", mode);
+      #print(" return mode: ", return_mode, " mode: ", mode);
+    recon_err = 0
+    sparsity_rate = 0
 
     if return_mode == 0
-        model, state, optim = train(input, model, real_input, optim)
+        model, state, optim, recon_err, sparsity_rate = train(input, model, real_input, optim)
     elseif return_mode == 1
         model,state = get_activations(input, model[1], model[2], model[3])
     end
 
     #also return optim if used
-    return (model, state, optim)
+    return (model, state, optim,recon_err, sparsity_rate)
 end
 
 # in order to be used for SVM this will calculate the pool activations without training
@@ -79,9 +81,9 @@ end
 
 function initmodel(input, filtersize, numfilters; winit=0.001)
   num_channels = size(input,3)
-  filters = winit * randn(Float64, filtersize, filtersize, num_channels, numfilters)
-  hidden_bias = zeros(Float64, 1,1,numfilters,1)
-  visible_bias = zeros(Float64, 1,1,num_channels,1); #check dimensions for This
+  filters = convert(atype, winit * randn(filtersize, filtersize, num_channels, numfilters))
+  hidden_bias = convert(atype, zeros(1,1,numfilters,1))
+  visible_bias = convert(atype, zeros(atype, 1,1,num_channels,1)) #check dimensions for This
 
   return [filters, hidden_bias, visible_bias]
 end
@@ -97,9 +99,9 @@ function train(visible, model, real_input, optim)
   for c = 1:cd
     # check here if real of binary
     if (real_input == true)
-        visible = SAMPLER.sample_visible_real(hidden_sample, model[1], model[3], size(visible))
+        visible = convert(atype, SAMPLER.sample_visible_real(hidden_sample, model[1], model[3], size(visible)))
     else
-        visible = SAMPLER.sample_visible_binary(hidden_sample, model[1], model[3], size(visible))
+        visible = convert(atype, SAMPLER.sample_visible_binary(hidden_sample, model[1], model[3], size(visible)))
     end
 
     hidden_post, hidden_sample, pool_post, pool_sample = sample_hidden(visible, model[1], model[2])
@@ -108,7 +110,7 @@ function train(visible, model, real_input, optim)
   #update weights
   norm_d = 1/size(hidden_post,1)^2 # normalizing denominator
 
-  g_loss = zeros(size(model[1]))
+  w_loss = convert(zeros(size(model[1])))
 
   for c=1:size(visible,3)
     for k=1:size(model[1],4)
@@ -119,30 +121,30 @@ function train(visible, model, real_input, optim)
         v = reshape(visible[:,:,c,:], size(visible,1), size(visible,2), 1, size(visible,4))
 
         losses = norm_d * (conv4(h_org, v_org; mode=1) - conv4(h, v; mode=1))
-        g_loss[:,:,c,k] = losses
+        w_loss[:,:,c,k] = losses
     end
   end
 
-#print("reconstruction error: ", mean((visible_org - visible).^2), "\n")
-# print("sparsity: ", sum(hidden_sample)/ (size(hidden_sample,1)* size(hidden_sample,2)*size(hidden_sample,3)*size(hidden_sample,4)), "\n")
+  recon_err = mean((visible_org - visible).^2)
+  sparsity_rate =  sum(hidden_sample)/ (size(hidden_sample,1)* size(hidden_sample,2)*size(hidden_sample,3)*size(hidden_sample,4))
 
-
-  b_sparsity_reg = sparsity - norm_d * sum(hidden_post, (1, 2, 4))
+  sparsity_reg = sparsity - norm_d * sum(hidden_post, (1, 2, 4))
   b_loss = norm_d * sum(hidden_post_org - hidden_post, (1,2,4))
-  b_total = b_loss - sparsity_lr * b_sparsity_reg
+  b_total = b_loss - sparsity_lr * sparsity_reg
+  w_total = w_loss - sparsity_lr * sparsity_reg
   c_loss = (1/size(visible,1)^2) * sum(visible_org - visible, (1,2,4))
 
-  update!(model, [-g_loss, -b_total, -c_loss], optim)
+  update!(model, [-w_total, -b_total, -c_loss], optim)
 
 # filters += gradient_lr * (g_loss .- 0.01 * abs(filters) - 0 * (map(x-> x > 0 ? 1:0, filters)*2-1))
 #  hidden_bias += gradient_lr * (b_loss + sparsity_lr * b_sparsity_reg)
 #  visible_bias += c_loss
 
-  return (model, [visible, hidden_sample, pool_sample], optim)
+  return (model, [visible, hidden_sample, pool_sample], optim, recon_err, sparsity_rate)
 end
 
 function sample_hidden(visible, filters, hidden_bias)
-  energies = SAMPLER.increase_in_energy_hidden(visible, filters, hidden_bias)
+  energies = convert(atype, SAMPLER.increase_in_energy_hidden(visible, filters, hidden_bias))
   num_filters = size(energies,3)
   hidden_width = size(energies,1)
   hidden_height = size(energies,2)
@@ -152,10 +154,10 @@ function sample_hidden(visible, filters, hidden_bias)
   sample_height = Int(floor(hidden_width/pool_size))
 
 # 1's below should be replaced by batch size
-  hidden_samples = zeros(hidden_width, hidden_height, num_filters, 1)
-  pool_samples = zeros(sample_width, sample_height, num_filters, 1)
-  hidden_posts = zeros(hidden_width, hidden_height, num_filters, 1)
-  pool_posts = zeros(sample_width, sample_height, num_filters, 1)
+  hidden_samples = convert(atype, zeros(hidden_width, hidden_height, num_filters, 1))
+  pool_samples = convert(atype, zeros(sample_width, sample_height, num_filters, 1))
+  hidden_posts = convert(atype, zeros(hidden_width, hidden_height, num_filters, 1))
+  pool_posts = convert(atype, zeros(sample_width, sample_height, num_filters, 1))
 
   for k=1:size(energies,3)
     for i=1:sample_width
@@ -164,8 +166,8 @@ function sample_hidden(visible, filters, hidden_bias)
         h_width_indices = i * pool_size - 1:i * pool_size
         h_height_indices =  j * pool_size - 1:j*pool_size
 
-        hidden_post, pool_post = SAMPLER.calculate_posterior(energies[h_width_indices,h_height_indices, k, :], 0)
-        hidden, pool = SAMPLER.sample_pool_group(hidden_post, pool_post)
+        hidden_post, pool_post = convert(atype, SAMPLER.calculate_posterior(energies[h_width_indices,h_height_indices, k, :], 0))
+        hidden, pool = convert(atype, SAMPLER.sample_pool_group(hidden_post, pool_post))
 
         hidden_posts[h_width_indices,h_height_indices,k, 1] = hidden_post
         pool_posts[i,j,k,1] = pool_post
@@ -177,9 +179,5 @@ function sample_hidden(visible, filters, hidden_bias)
 
   return (hidden_posts, hidden_samples, pool_posts, pool_samples)
 end
-
-
-
-
 
 end

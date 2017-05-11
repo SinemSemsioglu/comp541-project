@@ -6,20 +6,21 @@ function main()
     inputSize = 28
 
     xtrnraw, ytrnraw, xtstraw, ytstraw = loaddata(path)
+    atype = (gpu()>=0 ? KnetArray{Float64} : Array{Float64})
 
-    xtrn = convert(Array{Float64}, reshape(xtrnraw ./ 255, inputSize, inputSize, 1, div(length(xtrnraw), inputSize ^ 2)))
+    xtrn = convert(atype}, reshape(xtrnraw ./ 255, inputSize, inputSize, 1, div(length(xtrnraw), inputSize ^ 2)))
 
     ytrnraw[ytrnraw.==0]=10;
-    ytrn = convert(Array{Float64}, sparse(convert(Vector{Int},ytrnraw),1:length(ytrnraw),one(eltype(ytrnraw)),10,length(ytrnraw)))
+    ytrn = convert(atype, sparse(convert(Vector{Int},ytrnraw),1:length(ytrnraw),one(eltype(ytrnraw)),10,length(ytrnraw)))
 
-    xtst = convert(Array{Float64}, reshape(xtstraw ./ 255, inputSize, inputSize, 1, div(length(xtstraw), inputSize^2)))
+    xtst = convert(atype, reshape(xtstraw ./ 255, inputSize, inputSize, 1, div(length(xtstraw), inputSize^2)))
 
     ytstraw[ytstraw.==0]=10;
-    ytst = convert(Array{Float64}, sparse(convert(Vector{Int},ytstraw),1:length(ytstraw),one(eltype(ytstraw)),10,length(ytstraw)))
+    ytst = convert(atype, sparse(convert(Vector{Int},ytstraw),1:length(ytstraw),one(eltype(ytstraw)),10,length(ytstraw)))
 
 
     #train for each image
-    models, states, recons  = TRAIN.main(images=xtrn[:,:,:,1:1000], numlayers=2, filtersize=[12,6], numfilters=[40,40],save_model_data=1, model_path="mnist_1000_adam_lr_0.1_slr_50_max_epoch_10000_10000.jld", gradient_lr = 0.1, sparsity_lr = 50, max_iterations=[10000,10000], debug=1)
+    models, states, recons,stats  = TRAIN.main(images=xtrn[:,:,:,1:1000], numlayers=2, filtersize=[12,6], numfilters=[40,40],save_model_data=1, model_path="mnist_1000_adam_lr_0.1_slr_50_max_epoch_10000_10000.jld", gradient_lr = 0.1, sparsity_lr = 50, max_iterations=[10000,10000], debug=1)
 
     ACTIVATIONS.write_training_data("mnist_1000_adam_0.06_100_10000_10000.libsvm", recons, ytrn[:,1:1000],2,1 )
 

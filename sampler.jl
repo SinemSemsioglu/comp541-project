@@ -6,7 +6,8 @@ export increase_in_energy_hidden, increase_in_energy_pool, sample_pool_group, sa
 function sample_visible_binary(hidden, filters, visible_bias, visible_dims)
     conv_sum = get_conv_sum(hidden, filters, visible_dims)
     prob = sigm(conv_sum .+ visible_bias)
-    return float(map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1 , prob))
+    return float(map(x -> rand() >= x ? 1 : 0, prob))
+    #return float(map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1 , prob))
 end
 
 function get_conv_sum(hidden, filters, visible_dims)
@@ -53,7 +54,8 @@ end
 
 function sample_pool_group(prob_hidden_one, prob_pool_zero)
 #sample_hidden = map(x-> rand() > x ? 1 : 0, prob_hidden_one)
-    sample_hidden = map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1, prob_hidden_one)
+    #sample_hidden = map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1, prob_hidden_one)
+    sample_hidden = map(x -> rand() >= x ? 1 : 0, prob_hidden_one)
     one_indices = find(sample_hidden)
 
     # only 1 of them should be zero

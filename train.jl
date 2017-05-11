@@ -29,6 +29,9 @@ function main(;
     crbm_hiddens = Any[]
     crbm_recons = Any[]
     initial_model_l = []
+    next_input  = []
+    stats = Any[]
+    progress = Any[]
 
     for layer=1:numlayers
         if debug == 1
@@ -42,27 +45,29 @@ function main(;
             input = images
         else
             mode = 1
-            input = crbm_hiddens[layer-1]
+            input = crbm_recons[layer-1]
         end
 
         if size(initial_model,1) > 0 initial_model_l = initial_model[layer] end
 
-        model, state = train_crbm(input, mode, initial_model_l, filtersize[layer], numfilters[layer], pool[layer], sparsity[layer], gradient_lr, sparsity_lr, cd, max_iterations[layer], debug)
-        next_input, pooll = get_hidden_layers(input, model, pool[layer], mode, size(state[2]), size(state[3]))
+        models, recons, model, state, stat = train_crbm(input, mode, initial_model_l, filtersize[layer], numfilters[layer], pool[layer], sparsity[layer], gradient_lr, sparsity_lr, cd, max_iterations[layer], debug)
+        hidden, next_input = get_hidden_layers(input, model, pool[layer], mode, size(state[2]), size(state[3]))
 
-        push!(crbm_hiddens, next_input)
-        push!(crbm_recons, pooll)
+
+        push!(stats, stat)
+        push!(crbm_hiddens, hidden)
+        push!(crbm_recons, next_input)
         push!(crbm_models, model)
         push!(crbm_states, state)
+        push!(progress, (models, recons))
 
         if save_model_data == 1
             layer_path = string("layer_", layer, "_", model_path)
-            save(layer_path, "model",model, "state", state, "recons", pooll)
+            save(layer_path, "progress", progress, "model",model, "state", state, "recons", next_input, "stats", )
         end
     end
 
-
-    return (crbm_models, crbm_states, crbm_recons)
+    return (crbm_models, crbm_states, crbm_hiddens, crbm_recons, stats)
 end
 
 function get_hidden_layers(images, model, pool, mode, hidden_size, pool_size)
@@ -89,6 +94,12 @@ function train_crbm(images, mode, initial_model,filtersize, numfilters, pool, sp
     prev_state = []
     optim = []
 
+    recon_errs = []
+    sparsity_rates = []
+    grad_diffs = []
+    models = Any[]
+    recons = Any[]
+
     numImages = size(images,4)
     train_mode = 0
 
@@ -99,19 +110,27 @@ function train_crbm(images, mode, initial_model,filtersize, numfilters, pool, sp
 
         # train
         if epoch > 0
-            model, state, optim = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters, filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, mode=mode, model=deepcopy(prev_model), optim=optim)
+            model, state, optim,recon_err, sparsity_rate = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters, filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, mode=mode, model=deepcopy(prev_model), optim=optim)
         else
-            optim = [Adam(;lr=gradient_lr), Adam(;lr=gradient_lr), Adam(;lr=gradient_lr)]
+            optim = [Adam(;lr=gradient_lr,beta2=0), Adam(;lr=gradient_lr,beta2=0), Adam(;lr=gradient_lr,beta2=0)]
 
             if size(initial_model,1) >0
-                model, state, optim = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters,  filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, model=initial_model, mode=mode, optim=optim)
+                model, state, optim, recon_err, sparsity_rate = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters,  filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, model=initial_model, mode=mode, optim=optim)
             else
-                model, state, optim = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters,  filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, mode=mode, optim=optim)
+                model, state, optim, recon_err, sparsity_rate = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters,  filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, mode=mode, optim=optim)
             end
+        end
+
+        if (epoch % 20 == 0)
+          push!(models, model)
+          push!(recons, state[3])
         end
 
         if epoch > 0
             # check convergence
+            ave_grad_diff = mean(prev_model[1][1] .- model[1][1])
+            push!(grad_diffs, ave_grad_diff)
+
             if isapprox(prev_model[1], model[1])
                 if debug == 1
                     print("converged on epoch ", epoch)
@@ -119,19 +138,20 @@ function train_crbm(images, mode, initial_model,filtersize, numfilters, pool, sp
                 prev_model = model
                 prev_state = state
                 break
-            elseif debug == 1
-                print("epoch: ", epoch, " ave diff : ", mean(prev_model[1][1] .- model[1][1]), "\n")
+            elseif debug == 1 && epoch % 10 == 0
+                print("epoch: ", epoch, " ave diff : ", ave_grad_diff, " sparsity: ", sparsity_rate, " recon err", recon_err, "\n")
             end
         end
-
-        # gradient_lr = gradient_lr / (1 + 0.1)
 
         prev_state = state
         prev_model = model
 
+        push!(recon_errs, recon_err)
+        push!(sparsity_rates, sparsity_rate)
     end
 
-    return (prev_model, prev_state)
+    stat = (sparsity_rates, recon_errs, grad_diffs)
+    return (models, recons, prev_model, prev_state, stat)
 end
 
 function train_full_cdbn(images, initial_model, numlayers, filtersize, numfilters, pool, sparsity, gradient_lr, sparsity_lr, cd, max_iterations, debug)

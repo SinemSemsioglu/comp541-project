@@ -4,7 +4,7 @@ export get_square_color_images, resize_images
 using Images
 
 #file_type 0 for jpg, 1 for png
-function get_square_color_images(path, file_type, im_size, grayscale)
+function get_square_color_images(path, file_type, im_size, grayscale, atype)
     if file_type == 0
         imFiles = filter(x -> ismatch(r"\.jpg", x), readdir(path));
     elseif file_type == 1
@@ -37,7 +37,7 @@ function get_square_color_images(path, file_type, im_size, grayscale)
             channeledImage = permutedims(channelview(squaredImage), (3,2,1))
         end
 
-        floatImage = convert(Array{Float32}, channeledImage)
+        floatImage = convert(atype, channeledImage)
 
         images[:,:,:, imIndex] = floatImage;
     end
