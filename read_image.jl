@@ -12,6 +12,7 @@ function get_square_color_images(path, file_type, im_size, grayscale, atype)
     end
 
     imFiles = map(x-> string(path, x), imFiles)
+    shuffle!(imFiles)
     numImages = size(imFiles,1)
     if grayscale == 1
         numchannels = 1

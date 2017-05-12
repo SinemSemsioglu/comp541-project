@@ -21,7 +21,7 @@ function main(;
                 batch=1,
                 save_model_data=0,
                 model_path="model.jld",
-                mode=0 #input is real for mode 0, binary for mode 1
+                mode =0 #input is real for mode 0, binary for mode 1
                 )
 
     crbm_models = Any[]
@@ -41,17 +41,17 @@ function main(;
         input = []
 
         if layer == 1
-            mode = 0
+            mode_ = mode
             input = images
         else
-            mode = 1
+            mode_ = 1
             input = crbm_recons[layer-1]
         end
 
         if size(initial_model,1) > 0 initial_model_l = initial_model[layer] end
 
-        models, recons, model, state, stat = train_crbm(input, mode, initial_model_l, filtersize[layer], numfilters[layer], pool[layer], sparsity[layer], gradient_lr, sparsity_lr, cd, max_iterations[layer], debug)
-        hidden, next_input = get_hidden_layers(input, model, pool[layer], mode, size(state[2]), size(state[3]))
+        models, recons, model, state, stat = train_crbm(input, mode_, initial_model_l, filtersize[layer], numfilters[layer], pool[layer], sparsity[layer], gradient_lr, sparsity_lr, cd, max_iterations[layer], debug)
+        hidden, next_input = get_hidden_layers(input, model, pool[layer], mode_, size(state[2]), size(state[3]))
 
 
         push!(stats, stat)
@@ -63,11 +63,11 @@ function main(;
 
         if save_model_data == 1
             layer_path = string("layer_", layer, "_", model_path)
-            save(layer_path, "progress", progress, "model",model, "state", state, "recons", next_input, "stats", )
+            save(layer_path, "progress", progress, "model",model, "state", state, "recons", next_input, "stats", stat )
         end
     end
 
-    return (crbm_models, crbm_states, crbm_hiddens, crbm_recons, stats)
+    return (progress, crbm_models, crbm_states, crbm_hiddens, crbm_recons, stats)
 end
 
 function get_hidden_layers(images, model, pool, mode, hidden_size, pool_size)
@@ -112,7 +112,7 @@ function train_crbm(images, mode, initial_model,filtersize, numfilters, pool, sp
         if epoch > 0
             model, state, optim,recon_err, sparsity_rate = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters, filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, mode=mode, model=deepcopy(prev_model), optim=optim)
         else
-            optim = [Adam(;lr=gradient_lr,beta2=0), Adam(;lr=gradient_lr,beta2=0), Adam(;lr=gradient_lr,beta2=0)]
+            optim = [Adam(;lr=gradient_lr,beta1=0.5,beta2=0), Adam(;lr=gradient_lr,beta1=0.5,beta2=0), Adam(;lr=gradient_lr,beta1=0.5,beta2=0)]
 
             if size(initial_model,1) >0
                 model, state, optim, recon_err, sparsity_rate = CRBM.main(return_mode=train_mode, input=image, numfilters_=numfilters,  filtersize_=filtersize, pool_=pool, sparsity_=sparsity, gradient_lr_=gradient_lr, sparsity_lr_=sparsity_lr, cd_=cd, model=initial_model, mode=mode, optim=optim)
@@ -138,8 +138,8 @@ function train_crbm(images, mode, initial_model,filtersize, numfilters, pool, sp
                 prev_model = model
                 prev_state = state
                 break
-            elseif debug == 1 && epoch % 10 == 0
-                print("epoch: ", epoch, " ave diff : ", ave_grad_diff, " sparsity: ", sparsity_rate, " recon err", recon_err, "\n")
+            elseif debug == 1 && epoch % 5 == 0
+                print("epoch: ", epoch, " ave diff : ", ave_grad_diff, " sparsity: ", sparsity_rate, " recon err: ", recon_err, "\n")
             end
         end
 

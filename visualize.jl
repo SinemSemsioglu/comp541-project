@@ -33,9 +33,9 @@ print(flt, "\n")
             c = mod(flt -1, num_cols)
 
             filter = filters[:,:,chn, flt]
-    normalized = filter / maximum(abs(filter))
-#shifted = filter - minimum(filter)
-#  normalized = shifted / maximum(shifted)
+#    normalized = filter / maximum(abs(filter))
+shifted = filter - minimum(filter)
+  normalized = shifted / maximum(shifted)
             all_filters[chn_v_off + (r * fh) + 1: chn_v_off + ((r +1) * fh), c * fw + 1: (c+1) * fw] = normalized
         end
     end

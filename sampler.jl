@@ -6,7 +6,7 @@ export increase_in_energy_hidden, increase_in_energy_pool, sample_pool_group, sa
 function sample_visible_binary(hidden, filters, visible_bias, visible_dims)
     conv_sum = get_conv_sum(hidden, filters, visible_dims)
     prob = sigm(conv_sum .+ visible_bias)
-    return float(map(x -> rand() >= x ? 1 : 0, prob))
+    return float(map(x -> rand() < x ? 1 : 0, prob))
     #return float(map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1 , prob))
 end
 
@@ -36,8 +36,8 @@ end
 function sample_visible_real(hidden, filters, visible_bias, visible_dims)
     conv_sum = get_conv_sum(hidden, filters, visible_dims)
     means = conv_sum .+ visible_bias
-    samples = map(x-> rand(Normal(x,1),1)[1], means)
-    return samples
+    #samples = map(x-> rand(Normal(x,1),1)[1], means)
+    return means
 end
 
 function increase_in_energy_hidden(visible, filters, hidden_bias)
@@ -45,7 +45,7 @@ function increase_in_energy_hidden(visible, filters, hidden_bias)
     e = zeros(d,d,size(filters,4),size(visible,4))
     f = zeros(size(filters,1), size(filters,2), size(filters,3),1)
     for i = 1:size(filters,4)
-        f[:,:,:] = filters[:,:,:,i]
+        f[:,:,:,:] = filters[:,:,:,i]
         e[:,:,i,:] = conv4(f, visible, mode = 1) .+ hidden_bias[1,1,i,1]
     end
     #return conv4(filters, visible; mode=1) .+ hidden_bias
@@ -55,24 +55,25 @@ end
 function sample_pool_group(prob_hidden_one, prob_pool_zero)
 #sample_hidden = map(x-> rand() > x ? 1 : 0, prob_hidden_one)
     #sample_hidden = map(x -> find(rand(Multinomial(1, [1-x, x]),1))[1] - 1, prob_hidden_one)
-    sample_hidden = map(x -> rand() >= x ? 1 : 0, prob_hidden_one)
+    sample_hidden = map(x -> rand() < x ? 1 : 0, prob_hidden_one)
     one_indices = find(sample_hidden)
 
     # only 1 of them should be zero
-    if (size(one_indices,1) > 1 )
+# if (size(one_indices,1) > 1 )
         # hidden variable to keep as one
-        rand_one_index = rand(1:size(one_indices,1))
-        rest_ones = [one_indices[1: (rand_one_index - 1)] ; one_indices[(rand_one_index + 1): end]]
-
-        for rest_one in rest_ones
-            row = mod(rest_one - 1 , size(sample_hidden, 1)) + 1
-            col = div(rest_one - 1, size(sample_hidden,2)) +1
-            sample_hidden[row,col] = float(0)
-        end
-    end
+#       rand_one_index = rand(1:size(one_indices,1))
+#       rest_ones = [one_indices[1: (rand_one_index - 1)] ; one_indices[(rand_one_index + 1): end]]
+#
+#       for rest_one in rest_ones
+#           row = mod(rest_one - 1 , size(sample_hidden, 1)) + 1
+#           col = div(rest_one - 1, size(sample_hidden,2)) +1
+#           sample_hidden[row,col] = float(0)
+#       end
+#   end
 
     # if I am sampling by looking at the hidden units, then I don't need the prob distro?
-    sample_pool = sum(sample_hidden)
+    #sample_pool = sum(sample_hidden)
+    sample_pool = rand() < prob_pool_zero ? 0 : 1
     return (sample_hidden, sample_pool)
 end
 
