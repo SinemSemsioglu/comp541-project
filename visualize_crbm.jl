@@ -14,7 +14,7 @@ function normalize_filter(filter)
 end
 
 # each row represents an image to be visualized
-function visualize(images, num_rows, num_cols, isfilter, path="")	
+function visualize(images, num_rows, num_cols, isfilter; path="")	
     num_images = size(images, 4)
     im_size = size(images, 1)
 	

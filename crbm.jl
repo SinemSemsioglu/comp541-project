@@ -4,7 +4,7 @@ using Knet
 export init
 
 #assume square filters
-function init(num_hidden, num_filters, num_input_channels; learning_rate = 0.1, winit = 0.1)
+function init(num_hidden, num_filters, num_input_channels; learning_rate = 0.1, winit = 0.1, target_sparsity=0.003, sparsity_lr=4)
 	weights = Any[]
 	push!(weights, winit * randn(num_hidden, num_hidden, num_input_channels, num_filters)); #conv filters 
 	push!(weights, zeros(1,1)); # visible bias
@@ -15,6 +15,9 @@ function init(num_hidden, num_filters, num_input_channels; learning_rate = 0.1, 
 	crbm["num_filters"] = num_filters
 	crbm["weights"] = weights
 	crbm["learning_rate"] = learning_rate
+	crbm["target_sparsity"] = target_sparsity
+	#keep in mind that  sparsity lr is relative to the lerning rate since they are multiplied 
+	crbm["sparsity_lr"] = sparsity_lr
 	crbm["num_channels"] = num_input_channels
 	
 	return crbm
@@ -61,12 +64,14 @@ function train(crbm_, batches; max_epochs = 1000)
 				
 				# the update term per instance
 				sum_diff_associations += pos_associations - neg_associations
-				sum_diff_probs += sum(p_h_p - n_h_p) # + sparsity term
+				# sparsity target - 1/numhidden sq sum of probs for each filter
+				# should we use neg or pos hidden probs
+				sum_diff_probs += (sum(p_h_p - n_h_p) / (crbm["num_hidden"]^2)) + crbm["sparsity_lr"] * (crbm["target_sparsity"] - sum(p_h_p) / (crbm["num_hidden"]^2))
 			end
 			
 			# update for the filter
 			crbm["weights"][1][:,:,1,filter_index] += crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-			crbm["weights"][3][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs / (crbm["num_hidden"]^2)) / num_instances	
+			crbm["weights"][3][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs ) / num_instances	
 		end
 		
 		crbm["weights"][2][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
@@ -210,7 +215,7 @@ function daydream(crbm, initial_visible, num_samples)
 	
 	# keeps hidden units as binary but visible units as real (probabilities)
 	for row in 2 : num_samples
-		visible = samples[row-1,:]
+		visible = reshape(samples[:,:, 1, row - 1], size(initial_visible, 1), size(initial_visible, 2), size(initial_visible, 3), 1)
 		
 		hidden_states, hidden_probs = positive_phase_with_conv2(crbm, visible)
 		visible_states, visible_probs = negative_phase_with_conv2(crbm, hidden_states)

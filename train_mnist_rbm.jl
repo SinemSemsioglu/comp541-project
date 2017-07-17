@@ -62,7 +62,7 @@ function main()
 	
 	# assuming -- hidden is set as an even number
 	# tranpose of the weights is taken so that each row corresponds to a filter
-	VISUZALIZE_RBM.visualize(transpose(trained_rbm["weights"][1]), 28, 28, Int(o[:hidden]/2), 2, true; path="filters.mat")
+	VISUALIZE_RBM.visualize(transpose(trained_rbm["weights"][1]), 28, 28, Int(o[:hidden]/2), 2, true; path="filters.mat")
 	VISUALIZE_RBM.visualize(generated_samples, 28, 28, Int(num_samples/2), 2, false; path="generated.mat")	
 end
 

@@ -22,8 +22,11 @@ function main()
     @add_arg_table s begin
         ("--epochs"; arg_type=Int; default=10; help="number of epoch ")
         ("--batchsize"; arg_type=Int; default=100; help="size of minibatches")
+        ("--numfilters"; arg_type=Int; help="number of filters")
         ("--hidden"; nargs='*'; arg_type=Int; help="sizes of hidden layers, e.g. --hidden 128 64 for a net with two hidden layers")
         ("--lr"; arg_type=Float64; default=0.5; help="learning rate")
+        ("--sparsitylr"; arg_type=Float64; default=4; help="learning rate for sparsity term relative to lr")
+        ("--sparsity"; arg_type=Float64; default=0.003; help="target sparsity for weights")
         ("--winit"; arg_type=Float64; default=0.1; help="w initialized with winit*randn()")
     end
 	
@@ -55,15 +58,16 @@ function main()
     
     ##
 	
-	crbm = CRBM.init(size(dtrn[1],2), o[:hidden]; winit = o[:winit], learning_rate = o[:lr])
+    crbm = CRBM.init(o[:hidden], o[:numfilters:], 1; winit = o[:winit], learning_rate = o[:lr], target_sparsity= o[:sparsity], sparsity_lr = o[:sparsitylr])
 	trained_crbm = CRBM.train(crbm, dtrn; max_epochs = o[:epochs])
 	
-	test_sample = dtst[1][:,:,:,10]
+	test_sample = dtst[1][:,:,:,50]
 	num_samples = 20
-	generated_samples = RBM.daydream(trained_rbm, test_sample, num_samples)
+	generated_samples = CRBM.daydream(trained_crbm, test_sample, num_samples)
 	
-	# assuming -- hidden is set as an even number
-	VISUZALIZE_CRBM.visualize(trained_rbm["weights"][1], Int(o[:hidden]/2), 2, true; path="filters.mat")
+    # assuming -- hidden is set as an even number
+    #VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], 5, 4, true; path="filters.mat")
+	VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], Int(o[:hidden]/2), 2, true; path="filters.mat")
 	VISUALIZE_CRBM.visualize(generated_samples, Int(num_samples/2), 2, false; path="generated.mat")	
 end
 
