@@ -19,7 +19,10 @@ function init(num_hidden, num_filters, num_input_channels; learning_rate = 0.1, 
 	#keep in mind that  sparsity lr is relative to the lerning rate since they are multiplied 
 	crbm["sparsity_lr"] = sparsity_lr
 	crbm["num_channels"] = num_input_channels
-	
+
+	# for now
+	crbm["max_pooling"] = true
+	crbm["pool_size"] = 2	
 	return crbm
 end
 
@@ -75,6 +78,7 @@ function train(crbm_, batches; max_epochs = 1000)
 		
 		crbm["weights"][2][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
 		error = sum((data - neg_visible_probs).^2)
+		if (error == NaN) break; end
 		print("Epoch ", epoch, ": error is ", (batch_index, error), "\n")
 	end
 	
@@ -128,12 +132,15 @@ function positive_phase_with_conv2(crbm, data)
 	if (crbm["max_pooling"])
 		# max pooling crbm activations
 		pos_hidden_probs, pos_pool_probs = max_pool(energy, crbm["pool_size"])
-		pos_pool_states = pos_pool_probs .> rand(size(pos_pool_probs))
+		pos_pool_states = pos_pool_probs .< rand(size(pos_pool_probs))
 	else
 		# regular crbm activations
 		pos_hidden_probs = sigm(energy)
 		pos_pool_states = []
 	end
+
+	hidden_width = 1 + size(data, 1) - crbm["num_hidden"]
+	hidden_height  = 1 + size(data, 2) - crbm["num_hidden"]
 
 	pos_hidden_states = pos_hidden_probs .> rand(hidden_width, hidden_height, crbm["num_filters"], num_instances)
 	pos_hidden_states = convert(Array{Float64}, pos_hidden_states)
@@ -256,8 +263,8 @@ function max_pool(hid_probs, pool_size)
 
 	hidden = zeros(size(hid_probs))
 	# assume size of hidden layer is divisible by the pool size
-	num_pools_x = size(hid_probs,1) / pool_size
-	num_pools_y = size(hid_probs,2) / pool_size
+	num_pools_x = Int(floor(size(hid_probs,1) / pool_size))
+	num_pools_y = Int(floor(size(hid_probs,2) / pool_size))
 	pool = zeros(num_pools_x, num_pools_y, size(hid_probs,3), size(hid_probs,4))
 	
 	for instance in 1: size(hid_probs,4)
@@ -265,13 +272,19 @@ function max_pool(hid_probs, pool_size)
 			for x_pool in 1:num_pools_x
 				for y_pool in 1:num_pools_y
 					x_indices = ((x_pool-1) * pool_size) + 1: (x_pool * pool_size)
-					y_indices = ((y_pool-1) * pool_size) -1 : y_pool * pool_size)
+					y_indices = ((y_pool-1) * pool_size) + 1 : (y_pool * pool_size)
 					pool_sum = sum(exp_probs[x_indices, y_indices, layer, instance])
 					pool[x_pool, y_pool, layer, instance] = 1/ (1 + pool_sum)
-					hidden[x_indices, y_indices, layer, instance] = exp_probs[x_indices, y_indices, layer, instance] / pool_sum					
+					hidden[x_indices, y_indices, layer, instance] = exp_probs[x_indices, y_indices, layer, instance] /(1+ pool_sum)				
 				end
 			end
 		end
+	end
+
+	if sum(hidden) == NaN || sum(pool) == NaN
+		file = matopen("nan.mat", "w")
+		write(file, "hidden", hidden, "pool", pool)
+		close(file)
 	end
 
 	return hidden, pool
