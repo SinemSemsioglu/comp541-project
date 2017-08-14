@@ -67,8 +67,8 @@ function main()
 	
     # assuming -- hidden is set as an even number
     #VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], 5, 4, true; path="filters.mat")
-	VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], Int(o[:hidden]/2), 2, true; path="filters.mat")
-	VISUALIZE_CRBM.visualize(generated_samples, Int(num_samples/2), 2, false; path="generated.mat")	
+	VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], Int(o[:hidden]/2), 2, true; path="pool_filters.mat")
+	VISUALIZE_CRBM.visualize(generated_samples, Int(num_samples/2), 2, false; path="pool_generated.mat")	
 end
 
 function loaddata()

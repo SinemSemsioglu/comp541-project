@@ -35,12 +35,11 @@ function train(crbm_, batches; max_epochs = 1000)
 		
 		# note: we are using the activatiton probabilities instead of the states themselves
 		
-		pos_hidden_states, pos_hidden_probs = positive_phase_with_conv2(crbm, data)
+		pos_hidden_states, pos_hidden_probs, pos_pool_states = positive_phase_with_conv2(crbm, data)
 		neg_visible_states, neg_visible_probs = negative_phase_with_conv2(crbm, pos_hidden_states)
 		
 		#second positive phase, resampling of hidden
-		neg_hidden_states, neg_hidden_probs = positive_phase_with_conv2(crbm, neg_visible_probs)
-		
+		neg_hidden_states, neg_hidden_probs, neg_pool_states = positive_phase_with_conv2(crbm, neg_visible_probs)
 		
 		# pos_associations = appr. of expected value of derivative of E(data, hidden) given training data, over hidden values
 		# neg_associations = appr. of expected value of derivative of E(data, hidden) given training data, over both hidden and visible values
@@ -124,14 +123,23 @@ function positive_phase_with_conv2(crbm, data)
 	end
 	
 	#below is same as above function, remove duplicate
-	pos_hidden_probs = sigm(pos_hidden_activations .+ crbm["weights"][3])
+	energy = pos_hidden_activations .+ crbm["weights"][3]
 		
-	hidden_width = 1 + size(data, 1) - crbm["num_hidden"]
-	hidden_height  = 1 + size(data, 2) - crbm["num_hidden"]
+	if (crbm["max_pooling"])
+		# max pooling crbm activations
+		pos_hidden_probs, pos_pool_probs = max_pool(energy, crbm["pool_size"])
+		pos_pool_states = pos_pool_probs .> rand(size(pos_pool_probs))
+	else
+		# regular crbm activations
+		pos_hidden_probs = sigm(energy)
+		pos_pool_states = []
+	end
+
 	pos_hidden_states = pos_hidden_probs .> rand(hidden_width, hidden_height, crbm["num_filters"], num_instances)
 	pos_hidden_states = convert(Array{Float64}, pos_hidden_states)
+	pos_pool_states = convert(Array{Float64}, pos_pool_states)
 
-	return pos_hidden_states, pos_hidden_probs
+	return pos_hidden_states, pos_hidden_probs, pos_pool_states
 end
 
 function negative_phase_with_conv4(crbm, pos_hidden_states)
@@ -174,7 +182,15 @@ function negative_phase_with_conv2(crbm, pos_hidden_states)
 	end
 
 	# below is same as conv4 version
-	neg_visible_probs = sigm(neg_visible_activations .+ crbm["weights"][2])
+	energy = neg_visible_activations .+ crbm["weights"][2]
+	if (crbm["max_pooling"])
+		# max pooling crbm activations
+		neg_visible_probs, neg_pool_probs = max_pool(energy, crbm["pool_size"])
+	else
+		# regular crbm activations
+		neg_visible_probs = sigm(energy)
+	end
+	
 	visible_states = neg_visible_probs .> rand(visible_width, visible_height, crbm["num_channels"], num_instances)
 	visible_states = convert(Array{Float64}, visible_states)
 
@@ -217,13 +233,49 @@ function daydream(crbm, initial_visible, num_samples)
 	for row in 2 : num_samples
 		visible = reshape(samples[:,:, 1, row - 1], size(initial_visible, 1), size(initial_visible, 2), size(initial_visible, 3), 1)
 		
-		hidden_states, hidden_probs = positive_phase_with_conv2(crbm, visible)
+		hidden_states, hidden_probs, pool_states = positive_phase_with_conv2(crbm, visible)
 		visible_states, visible_probs = negative_phase_with_conv2(crbm, hidden_states)
 		
 		samples[:,:,:,row] = visible_states
 	end
 	
 	return samples
+end
+
+function max_pool(hid_probs, pool_size)
+	# check the statement below
+	hid_probs = hid_probs .- maximum(hid_probs,1);
+	exp_probs = exp(hid_probs)
+
+	# want to sum probs for each pool group pool_size x pool_size
+	# for the positive phase (sampling hidden) we want to do this for each filter separately
+	# the hid_probs - hidden_width, hidden_height, crbm["num_filters"], num_instances
+	# for the negative phase (sampling visible) we have just one layer
+	# visible_width, visible_height, crbm["num_channels"], num_instances
+	# in this phase we don't need to compute the pool layer
+
+	hidden = zeros(size(hid_probs))
+	# assume size of hidden layer is divisible by the pool size
+	num_pools_x = size(hid_probs,1) / pool_size
+	num_pools_y = size(hid_probs,2) / pool_size
+	pool = zeros(num_pools_x, num_pools_y, size(hid_probs,3), size(hid_probs,4))
+	
+	for instance in 1: size(hid_probs,4)
+		for layer in 1: size(hid_probs,3)
+			for x_pool in 1:num_pools_x
+				for y_pool in 1:num_pools_y
+					x_indices = ((x_pool-1) * pool_size) + 1: (x_pool * pool_size)
+					y_indices = ((y_pool-1) * pool_size) -1 : y_pool * pool_size)
+					pool_sum = sum(exp_probs[x_indices, y_indices, layer, instance])
+					pool[x_pool, y_pool, layer, instance] = 1/ (1 + pool_sum)
+					hidden[x_indices, y_indices, layer, instance] = exp_probs[x_indices, y_indices, layer, instance] / pool_sum					
+				end
+			end
+		end
+	end
+
+	return hidden, pool
+
 end
 
 end
