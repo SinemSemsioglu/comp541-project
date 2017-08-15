@@ -1,28 +1,28 @@
 module CRBM
-using Knet
-
+using Knet, MAT
+include("visualize_crbm.jl")
 export init
 
 #assume square filters
-function init(num_hidden, num_filters, num_input_channels; learning_rate = 0.1, winit = 0.1, target_sparsity=0.003, sparsity_lr=4)
+function init(opts)
 	weights = Any[]
-	push!(weights, winit * randn(num_hidden, num_hidden, num_input_channels, num_filters)); #conv filters 
+	push!(weights, winit * randn(opts[:hidden], opts[:hidden], num_input_channels, num_filters)); #conv filters 
 	push!(weights, zeros(1,1)); # visible bias
 	push!(weights, zeros(1,1,num_filters,1)); #hidden biases, will they be different for each channel if there are multiple channels? should probably be
 	
 	crbm = Dict{String, Any}();
-	crbm["num_hidden"] = num_hidden
-	crbm["num_filters"] = num_filters
+	crbm["num_hidden"] = opts[:hidden][1]
+	crbm["num_filters"] = opts[:numfilters]
 	crbm["weights"] = weights
-	crbm["learning_rate"] = learning_rate
-	crbm["target_sparsity"] = target_sparsity
+	crbm["learning_rate"] = opts[:lr]
+	crbm["target_sparsity"] = opts[:sparsityt]
 	#keep in mind that  sparsity lr is relative to the lerning rate since they are multiplied 
-	crbm["sparsity_lr"] = sparsity_lr
+	crbm["sparsity"] = opts[:sparsity]
+	crbm["sparsity_lr"] = opts[:sparsitylr]
 	crbm["num_channels"] = num_input_channels
-
-	# for now
-	crbm["max_pooling"] = true
-	crbm["pool_size"] = 2	
+	crbm["max_pooling"] = opts[:maxpool]
+	crbm["pool_size"] = opts[:poolsize]
+	crbm["opt"] = opts[:opt]	
 	return crbm
 end
 
@@ -30,6 +30,10 @@ function train(crbm_, batches; max_epochs = 1000)
 	crbm = deepcopy(crbm_)
 	num_instances = size(batches[1], 4)
 	num_batches = size(batches,1)
+	
+	if crbm["opt"]
+		opt_params = Adam(;lr=crbm["learning_rate"])
+	end
 	
 	for epoch in 1:max_epochs
 		batch_index = epoch % num_batches + 1
@@ -66,20 +70,47 @@ function train(crbm_, batches; max_epochs = 1000)
 				
 				# the update term per instance
 				sum_diff_associations += pos_associations - neg_associations
-				# sparsity target - 1/numhidden sq sum of probs for each filter
-				# should we use neg or pos hidden probs
-				sum_diff_probs += (sum(p_h_p - n_h_p) / (crbm["num_hidden"]^2)) + crbm["sparsity_lr"] * (crbm["target_sparsity"] - sum(p_h_p) / (crbm["num_hidden"]^2))
+				sum_diff_probs += (sum(p_h_p - n_h_p) / (crbm["num_hidden"]^2))
+				
+				if crbm["sparsity"]
+					# sparsity target - 1/numhidden sq sum of probs for each filter
+					# should we use neg or pos hidden probs
+					sum_diff_probs += crbm["sparsity_lr"] * (crbm["target_sparsity"] - sum(p_h_p) / (crbm["num_hidden"]^2))
+				end	
+				
 			end
 			
-			# update for the filter
-			crbm["weights"][1][:,:,1,filter_index] += crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-			crbm["weights"][3][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs ) / num_instances	
+			if crbm["opt"]
+				grads[1][:,:,1,filter_index] = (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				grads[3][1,1,filter_index,1] = (sum_diff_probs ) / num_instances
+			else
+				# update for the filter
+				crbm["weights"][1][:,:,1,filter_index] += crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				crbm["weights"][3][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs ) / num_instances
+			end	
 		end
 		
-		crbm["weights"][2][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
+		if crbm["opt"]
+			grads[2][1,1] = (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
+			update!(weights, grads, opt_params)
+		else
+			crbm["weights"][2][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
+		end
+
 		error = sum((data - neg_visible_probs).^2)
 		if (error == NaN) break; end
+		
 		print("Epoch ", epoch, ": error is ", (batch_index, error), "\n")
+
+		if epoch % 20 == 0
+			filters = VISUALIZE_CRBM.visualize(crbm["weights"][1], Int(crbm["num_filters"]/2), 2, true; path="")
+			filename = string("epoch_", epoch, ".mat")
+			file = matopen(filename, "w")
+			write(file, "weights", crbm["weights"])
+			write(file, "error", error)
+			write(file, "filters", filters)
+			close(file)
+		end
 	end
 	
 	return crbm

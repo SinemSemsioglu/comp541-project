@@ -2,7 +2,8 @@ module VISUALIZE_CRBM
 
 export visualize_filter, visualize
 
-using ImageView, Knet, MAT
+#using ImageView, Knet, MAT
+using Knet, MAT
 
 function normalize_filter(filter)
 	max_value = maximum(abs(filter))
@@ -45,7 +46,7 @@ function visualize(images, num_rows, num_cols, isfilter; path="")
         all_images[(r * im_size) + 1: ((r +1) * im_size), c * im_size + 1: (c+1) * im_size] = normalized
     end
 	
-	imshow(all_images)
+	#imshow(all_images)
 	
 	#saves as a .mat file
 	if path != ""
@@ -53,11 +54,13 @@ function visualize(images, num_rows, num_cols, isfilter; path="")
 		write(file, "images", all_images)
 		close(file)
 	end
+
+	return all_images
 end
 
 function visualize_filter(filter)
     normalized = normalize_filter(filter)
-    imshow(normalized)
+    #imshow(normalized)
 end
 
 
