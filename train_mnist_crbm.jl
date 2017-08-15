@@ -61,7 +61,7 @@ function main(args=ARGS)
 	dtrn = minibatch(xtrn, o[:batchsize])
     dtst = minibatch(xtst, o[:batchsize])
     
-    crbm = CRBM.init(o[:hidden][1], o[:numfilters][1], 1; winit = o[:winit], learning_rate = o[:lr], target_sparsity= o[:sparsity], sparsity_lr = o[:sparsitylr])
+    crbm = CRBM.init(o)
     #crbm = CRBM.init(12, 40, 1; winit = 0.1, learning_rate = 0.5, target_sparsity= 0.003, sparsity_lr = 4)
 	trained_crbm = CRBM.train(crbm, dtrn; max_epochs = o[:epochs])
 	
@@ -71,7 +71,7 @@ function main(args=ARGS)
 	
     # assuming -- hidden is set as an even number
     #VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], 5, 4, true; path="filters.mat")
-	VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], Int(o[:numfilters]/2), 2, true; path="pool_filters.mat")
+	VISUALIZE_CRBM.visualize(trained_crbm["weights"]["w"], Int(o[:numfilters]/2), 2, true; path="pool_filters.mat")
     VISUALIZE_CRBM.visualize(generated_samples, Int(num_samples/2), 2, false; path="pool_generated.mat")
     
     file = matopen("final_weights.mat", "w")

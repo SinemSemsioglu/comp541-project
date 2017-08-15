@@ -5,10 +5,11 @@ export init
 
 #assume square filters
 function init(opts)
-	weights = Any[]
-	push!(weights, winit * randn(opts[:hidden], opts[:hidden], num_input_channels, num_filters)); #conv filters 
-	push!(weights, zeros(1,1)); # visible bias
-	push!(weights, zeros(1,1,num_filters,1)); #hidden biases, will they be different for each channel if there are multiple channels? should probably be
+	weights = Dict()
+	num_input_channels = 1 # for now
+	weights["w"] = opts[:winit] * randn(opts[:hidden][1], opts[:hidden][1], num_input_channels, opts[:numfilters]); #conv filters 
+	weights["c"] = zeros(1,1); # visible bias
+	weights["b"] = zeros(1,1,opts[:numfilters],1); #hidden biases, will they be different for each channel if there are multiple channels? should probably be
 	
 	crbm = Dict{String, Any}();
 	crbm["num_hidden"] = opts[:hidden][1]
@@ -32,7 +33,15 @@ function train(crbm_, batches; max_epochs = 1000)
 	num_batches = size(batches,1)
 	
 	if crbm["opt"]
-		opt_params = Adam(;lr=crbm["learning_rate"])
+		#print("initialized adam params\n")
+
+		opt_params = Dict()
+		grads = Dict()
+
+		for key in keys(crbm["weights"])
+			opt_params[key] = Adam(;lr=crbm["learning_rate"])
+			grads[key] = zeros(size(crbm["weights"][key]))
+		end
 	end
 	
 	for epoch in 1:max_epochs
@@ -73,6 +82,7 @@ function train(crbm_, batches; max_epochs = 1000)
 				sum_diff_probs += (sum(p_h_p - n_h_p) / (crbm["num_hidden"]^2))
 				
 				if crbm["sparsity"]
+					print("adding sparsity terms\n")
 					# sparsity target - 1/numhidden sq sum of probs for each filter
 					# should we use neg or pos hidden probs
 					sum_diff_probs += crbm["sparsity_lr"] * (crbm["target_sparsity"] - sum(p_h_p) / (crbm["num_hidden"]^2))
@@ -81,20 +91,23 @@ function train(crbm_, batches; max_epochs = 1000)
 			end
 			
 			if crbm["opt"]
-				grads[1][:,:,1,filter_index] = (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-				grads[3][1,1,filter_index,1] = (sum_diff_probs ) / num_instances
+				#print("caculating gradz \n")
+				grads["w"][:,:,1,filter_index] = (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				grads["b"][1,1,filter_index,1] = (sum_diff_probs ) / num_instances
 			else
+				#print("doing things the old way\n")
 				# update for the filter
-				crbm["weights"][1][:,:,1,filter_index] += crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-				crbm["weights"][3][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs ) / num_instances
+				crbm["weights"]["w"][:,:,1,filter_index] += crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				crbm["weights"]["b"][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs ) / num_instances
 			end	
 		end
 		
 		if crbm["opt"]
-			grads[2][1,1] = (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
-			update!(weights, grads, opt_params)
+			#print("updating weights the adam way \n")
+			grads["c"][1,1] = (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
+			update!(crbm["weights"], grads, opt_params)
 		else
-			crbm["weights"][2][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
+			crbm["weights"]["c"][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
 		end
 
 		error = sum((data - neg_visible_probs).^2)
@@ -103,7 +116,7 @@ function train(crbm_, batches; max_epochs = 1000)
 		print("Epoch ", epoch, ": error is ", (batch_index, error), "\n")
 
 		if epoch % 20 == 0
-			filters = VISUALIZE_CRBM.visualize(crbm["weights"][1], Int(crbm["num_filters"]/2), 2, true; path="")
+			filters = VISUALIZE_CRBM.visualize(crbm["weights"]["w"], Int(crbm["num_filters"]/2), 2, true; path="")
 			filename = string("epoch_", epoch, ".mat")
 			file = matopen(filename, "w")
 			write(file, "weights", crbm["weights"])
@@ -124,8 +137,8 @@ function positive_phase_with_conv4(crbm, data)
 		# the convolution will convolve for all k filters
 		# result will have size (1 + input_width - filter_width,  1 + input_height - filter_height, num_filters, num_instances)
 		# valid cross correlation? (since the filters should be flipped)
-		pos_hidden_activations = conv4(rbm["weights"][1], data; mode=1) 
-		pos_hidden_probs = sigm(pos_hidden_activations .+ crbm["weights"][3])
+		pos_hidden_activations = conv4(crbm["weights"]["w"], data; mode=1) 
+		pos_hidden_probs = sigm(pos_hidden_activations .+ crbm["weights"]["b"])
 		
 		hidden_width = 1 + size(data, 1) - crbm["num_hidden"]
 		hidden_height  = 1 + size(data, 2) - crbm["num_hidden"]
@@ -144,7 +157,7 @@ function positive_phase_with_conv2(crbm, data)
 	pos_hidden_activations = zeros(1 + input_width - crbm["num_hidden"],  1 + input_height - crbm["num_hidden"], crbm["num_filters"], num_instances)
 	
 	for filter_index in 1:crbm["num_filters"]
-		filter = rot180(reshape(crbm["weights"][1][:,:,1,filter_index], crbm["num_hidden"], crbm["num_hidden"]))
+		filter = rot180(reshape(crbm["weights"]["w"][:,:,1,filter_index], crbm["num_hidden"], crbm["num_hidden"]))
 		
 		for instance_index in 1:size(data, 4)
 			instance = reshape(data[:,:, 1, instance_index], size(data, 1), size(data, 2))
@@ -158,13 +171,15 @@ function positive_phase_with_conv2(crbm, data)
 	end
 	
 	#below is same as above function, remove duplicate
-	energy = pos_hidden_activations .+ crbm["weights"][3]
+	energy = pos_hidden_activations .+ crbm["weights"]["b"]
 		
 	if (crbm["max_pooling"])
+		#print("doin max poolin\n")
 		# max pooling crbm activations
 		pos_hidden_probs, pos_pool_probs = max_pool(energy, crbm["pool_size"])
 		pos_pool_states = pos_pool_probs .< rand(size(pos_pool_probs))
 	else
+		#print("no doin max poolin\n")
 		# regular crbm activations
 		pos_hidden_probs = sigm(energy)
 		pos_pool_states = []
@@ -189,8 +204,8 @@ function negative_phase_with_conv4(crbm, pos_hidden_states)
 		# then i will sum over the filters dimension, the third one
 		
 		full_padding = crbm["num_hidden"] - 1
-		neg_visible_activations = sum(conv4(crbm["weights"][1], pos_hidden_states; padding = full_padding),3)
-		neg_visible_probs = sigm(neg_visible_activations .+ crbm["weights"][2])
+		neg_visible_activations = sum(conv4(crbm["weights"]["w"], pos_hidden_states; padding = full_padding),3)
+		neg_visible_probs = sigm(neg_visible_activations .+ crbm["weights"]["c"])
 		visible_states = neg_visible_probs .> rand(visible_width, visible_height, crbm["num_channels"], num_instances)
 		visible_states = convert(Array{Float64}, visible_states)
 
@@ -210,7 +225,7 @@ function negative_phase_with_conv2(crbm, pos_hidden_states)
 	for instance_index in 1:num_instances
 		filter_sum = 0
 		for filter_index in 1:crbm["num_filters"]
-			filter = reshape(crbm["weights"][1][:,:,1,filter_index], crbm["num_hidden"], crbm["num_hidden"])
+			filter = reshape(crbm["weights"]["w"][:,:,1,filter_index], crbm["num_hidden"], crbm["num_hidden"])
 			hidden = reshape(pos_hidden_states[:,:, filter_index, instance_index], hidden_width, hidden_height)
 
 			filter_sum += conv2(filter, hidden)
@@ -220,11 +235,13 @@ function negative_phase_with_conv2(crbm, pos_hidden_states)
 	end
 
 	# below is same as conv4 version
-	energy = neg_visible_activations .+ crbm["weights"][2]
+	energy = neg_visible_activations .+ crbm["weights"]["c"]
 	if (crbm["max_pooling"])
+		#print("doin max poolin\n")
 		# max pooling crbm activations
 		neg_visible_probs, neg_pool_probs = max_pool(energy, crbm["pool_size"])
 	else
+		#print("no doin max poolin\n")
 		# regular crbm activations
 		neg_visible_probs = sigm(energy)
 	end
@@ -242,13 +259,13 @@ function run_visible_hidden(rbm, data, is_visible)
 	num_examples = size(data, 1)
 	
 	if is_visible
-		num_units = rbm["num_hidden"]
-		biases = rbm["weights"][3] # hidden biases
-		weights = rbm["weights"][1]
+		num_units = crbm["num_hidden"]
+		biases = crbm["weights"]["b"] # hidden biases
+		weights = crbm["weights"]["w"]
 	else
-		num_units = rbm["num_visible"]
-		biases = rbm["weights"][2] # visible biasaes
-		weights = transpose(rbm["weights"][1])
+		num_units = crbm["num_visible"]
+		biases = crbm["weights"]["c"] # visible biasaes
+		weights = transpose(crbm["weights"]["w"])
 	end
 	
 	states = ones(num_examples, num_units)
