@@ -128,6 +128,7 @@ function train(crbm_, batches; max_epochs = 1000)
 			write(file, "weights", crbm["weights"])
 			write(file, "error", error)
 			write(file, "filters", filters)
+			write(file, "hidden", crbm["hidden"])
 			write(file, "sparsity", curr_sparsity)
 			close(file)
 		end
@@ -143,11 +144,11 @@ function calculate_average_sparsity(hidden)
 	# this can probably be done more cleverly
 	for instance in 1:size(hidden,4)
 		for filter in 1:size(hidden,3)
-			total_sparsity += sum(hidden[:,:,filter,hidden]) / num_units
+			total_sparsity += sum(hidden[:,:,filter,instance]) / num_units
 		end
 	end
 
-	return total_sparsity / size(hidden,3) * size(hidden,4)
+	return total_sparsity / (size(hidden,3) * size(hidden,4))
 end
 
 function positive_phase_with_conv4(crbm, data) 
