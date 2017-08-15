@@ -43,6 +43,10 @@ function train(crbm_, batches; max_epochs = 1000)
 			grads[key] = zeros(size(crbm["weights"][key]))
 		end
 	end
+
+	hidden_width = 1 + size(batches[1], 1) - crbm["num_hidden"]
+	hidden_height  = 1 + size(batches[1], 2) - crbm["num_hidden"]
+	crbm["hidden"] = zeros(hidden_width, hidden_height, crbm["num_filters"], num_instances)
 	
 	for epoch in 1:max_epochs
 		batch_index = epoch % num_batches + 1
@@ -56,6 +60,7 @@ function train(crbm_, batches; max_epochs = 1000)
 		
 		#second positive phase, resampling of hidden
 		neg_hidden_states, neg_hidden_probs, neg_pool_states = positive_phase_with_conv2(crbm, neg_visible_probs)
+		crbm["hidden"] = neg_hidden_states
 		
 		# pos_associations = appr. of expected value of derivative of E(data, hidden) given training data, over hidden values
 		# neg_associations = appr. of expected value of derivative of E(data, hidden) given training data, over both hidden and visible values
@@ -92,8 +97,8 @@ function train(crbm_, batches; max_epochs = 1000)
 			
 			if crbm["opt"]
 				#print("caculating gradz \n")
-				grads["w"][:,:,1,filter_index] = (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-				grads["b"][1,1,filter_index,1] = (sum_diff_probs ) / num_instances
+				grads["w"][:,:,1,filter_index] = -1 * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				grads["b"][1,1,filter_index,1] = -1 * (sum_diff_probs ) / num_instances
 			else
 				#print("doing things the old way\n")
 				# update for the filter
@@ -104,7 +109,7 @@ function train(crbm_, batches; max_epochs = 1000)
 		
 		if crbm["opt"]
 			#print("updating weights the adam way \n")
-			grads["c"][1,1] = (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
+			grads["c"][1,1] = -1 * (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
 			update!(crbm["weights"], grads, opt_params)
 		else
 			crbm["weights"]["c"][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
@@ -119,14 +124,30 @@ function train(crbm_, batches; max_epochs = 1000)
 			filters = VISUALIZE_CRBM.visualize(crbm["weights"]["w"], Int(crbm["num_filters"]/2), 2, true; path="")
 			filename = string("epoch_", epoch, ".mat")
 			file = matopen(filename, "w")
+			curr_sparsity = calculate_average_sparsity(crbm["hidden"])
 			write(file, "weights", crbm["weights"])
 			write(file, "error", error)
 			write(file, "filters", filters)
+			write(file, "sparsity", curr_sparsity)
 			close(file)
 		end
 	end
 	
 	return crbm
+end
+
+function calculate_average_sparsity(hidden)
+	total_sparsity = 0
+	num_units = size(hidden,1) * size(hidden,2)
+
+	# this can probably be done more cleverly
+	for instance in 1:size(hidden,4)
+		for filter in 1:size(hidden,3)
+			total_sparsity += sum(hidden[:,:,filter,hidden]) / num_units
+		end
+	end
+
+	return total_sparsity / size(hidden,3) * size(hidden,4)
 end
 
 function positive_phase_with_conv4(crbm, data) 
