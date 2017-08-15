@@ -82,7 +82,7 @@ function train(crbm_, batches; max_epochs = 1000)
 				sum_diff_probs += (sum(p_h_p - n_h_p) / (crbm["num_hidden"]^2))
 				
 				if crbm["sparsity"]
-					print("adding sparsity terms\n")
+					#print("adding sparsity terms\n")
 					# sparsity target - 1/numhidden sq sum of probs for each filter
 					# should we use neg or pos hidden probs
 					sum_diff_probs += crbm["sparsity_lr"] * (crbm["target_sparsity"] - sum(p_h_p) / (crbm["num_hidden"]^2))
