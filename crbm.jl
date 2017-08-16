@@ -128,7 +128,7 @@ function train(crbm_, batches; max_epochs = 1000)
 			write(file, "weights", crbm["weights"])
 			write(file, "error", error)
 			write(file, "filters", filters)
-			write(file, "hidden", crbm["hidden"])
+			#write(file, "hidden", crbm["hidden"])
 			write(file, "sparsity", curr_sparsity)
 			close(file)
 		end
@@ -198,19 +198,19 @@ function positive_phase_with_conv2(crbm, data)
 	if (crbm["max_pooling"])
 		#print("doin max poolin\n")
 		# max pooling crbm activations
-		pos_hidden_probs, pos_pool_probs = max_pool(energy, crbm["pool_size"])
-		pos_pool_states = pos_pool_probs .< rand(size(pos_pool_probs))
+		pos_hidden_probs, pos_hidden_states, pos_pool_probs, pos_pool_states = max_pool(energy, crbm["pool_size"])
 	else
 		#print("no doin max poolin\n")
 		# regular crbm activations
 		pos_hidden_probs = sigm(energy)
+		
+		hidden_width = 1 + size(data, 1) - crbm["num_hidden"]
+		hidden_height  = 1 + size(data, 2) - crbm["num_hidden"]
+
+		pos_hidden_states = pos_hidden_probs .> rand(hidden_width, hidden_height, crbm["num_filters"], num_instances)
 		pos_pool_states = []
 	end
 
-	hidden_width = 1 + size(data, 1) - crbm["num_hidden"]
-	hidden_height  = 1 + size(data, 2) - crbm["num_hidden"]
-
-	pos_hidden_states = pos_hidden_probs .> rand(hidden_width, hidden_height, crbm["num_filters"], num_instances)
 	pos_hidden_states = convert(Array{Float64}, pos_hidden_states)
 	pos_pool_states = convert(Array{Float64}, pos_pool_states)
 
@@ -261,14 +261,14 @@ function negative_phase_with_conv2(crbm, pos_hidden_states)
 	if (crbm["max_pooling"])
 		#print("doin max poolin\n")
 		# max pooling crbm activations
-		neg_visible_probs, neg_pool_probs = max_pool(energy, crbm["pool_size"])
+		neg_visible_probs, visible_states, neg_pool_probs, neg_pool_states = max_pool(energy, crbm["pool_size"])
 	else
 		#print("no doin max poolin\n")
 		# regular crbm activations
 		neg_visible_probs = sigm(energy)
+		visible_states = neg_visible_probs .> rand(visible_width, visible_height, crbm["num_channels"], num_instances)
 	end
 	
-	visible_states = neg_visible_probs .> rand(visible_width, visible_height, crbm["num_channels"], num_instances)
 	visible_states = convert(Array{Float64}, visible_states)
 
 	return visible_states, neg_visible_probs
@@ -319,46 +319,104 @@ function daydream(crbm, initial_visible, num_samples)
 	return samples
 end
 
-function max_pool(hid_probs, pool_size)
-	# check the statement below
-	hid_probs = hid_probs .- maximum(hid_probs,1);
-	exp_probs = exp(hid_probs)
+function max_pool(energy, pool_size)
+	# multivariate sampling of hidden elements + computing pool group
 
-	# want to sum probs for each pool group pool_size x pool_size
+	# zero padding in order to avoid calc problems when size is not div. by pool size
+	off_x = (pool_size - (size(energy, 1) % pool_size))/ 2
+	off_y = (pool_size - (size(energy,2) % pool_size)) / 2
+	energies = zeros(Int(off_x * 2) + size(energy,1), Int(off_y * 2) + size(energy,2), size(energy,3), size(energy,4))
+	energies[1 + Int(floor(off_x)):end - Int(ceil(off_x)), 1 + Int(floor(off_y)):end - Int(ceil(off_y)), :, :] = energy
+
+	hidden_s = zeros(size(energies))
+	hidden_p = zeros(size(energies))
+	# assume size of hidden layer is divisible by the pool size
+	num_pools_x = Int(size(energies,1) / pool_size) # number of horizontal divisions for each hidden unit group
+	num_pools_y = Int(size(energies,2) / pool_size)
+	
+
+	num_pools = num_pools_x * num_pools_y * size(energies,3) * size(energies,4)
+	# configs represent all possibilities for hidden unit values for each pooling unit
+	configs = zeros(pool_size^2 + 1, num_pools)
+	
+	for col in 1:pool_size
+		for row in 1:pool_size
+			# finds all ((x_pool-1) * pool_size + y_pool)th elements in pool groups
+			# and puts them in config (ie the prob of the first element being on)
+			elms = energies[row:pool_size:end, col:pool_size:end, :, :]
+			configs[(col-1) * pool_size + row, :] = reshape(elms, 1, num_pools)
+		end
+	end
+
+	configs = configs .- maximum(configs,1);
+	exp_conf = exp(configs)
+
+	# convert exponentiated values into real probabilities
+	# these correspond to probability of each pool unit being on and all being off
+	probs = transpose(exp_conf ./ sum(exp_conf,1))
+	# cumulative sum of probabilties compared to a random number for multivariate sampling
+	compare_prob = map(x -> x? 1:0, cumsum(probs, 2) .> rand(size(probs,1),1))
+	# the on unit for each pool group the index of 1 reflects the real index -1
+	sampled_indices_prev = diff(compare_prob,2)
+	sampled_indices = zeros(size(probs))
+	# here we turn the first unit on, if the first element in compare_prob was 1
+	# then the there wont' be any difference with a value of 1
+	sampled_indices[:,1] = 1 - sum(sampled_indices_prev,2)
+	sampled_indices[:,2:end] = sampled_indices_prev
+	samples = transpose(sampled_indices)
+	probs = transpose(probs)
+	
+	# setting the hidden unit values
+	for col in 1:pool_size
+		for row in 1:pool_size
+			selected_samples = reshape(samples[(col-1)*pool_size + row, :], num_pools_x, num_pools_y, size(energies, 3), size(energies,4))
+			selected_probs = reshape(probs[(col-1)*pool_size + row, :], num_pools_x, num_pools_y, size(energies, 3), size(energies,4))
+			hidden_s[row:pool_size:end, col:pool_size:end, :, :] = selected_samples
+			hidden_p[row:pool_size:end, col:pool_size:end, :, :] = selected_probs
+		end
+	end
+
+	# we need to trim the hidden states and probs before returning (in case zero padded)
+	hidden_states = hidden_s[1 + Int(floor(off_x)):end - Int(ceil(off_x)), 1 + Int(floor(off_y)):end - Int(ceil(off_y)), :, :]
+	hidden_probs = hidden_p[1 + Int(floor(off_x)):end - Int(ceil(off_x)), 1 + Int(floor(off_y)):end - Int(ceil(off_y)), :, :]
+
+	# setting the pool unit values
+	pool_states_row = sum(samples[1:end-1,:],1)
+	pool_probs_row = sum(probs[1:end-1,:],1)
+
+	pool_states = reshape(pool_states_row, num_pools_x, num_pools_y, size(energies,3), size(energies,4))
+	pool_probs = reshape(pool_probs_row, num_pools_x, num_pools_y, size(energies,3), size(energies,4))
+
+
+	return hidden_probs, hidden_states, pool_probs, pool_states
+end
+
+end
+
+# want to sum probs for each pool group pool_size x pool_size
 	# for the positive phase (sampling hidden) we want to do this for each filter separately
 	# the hid_probs - hidden_width, hidden_height, crbm["num_filters"], num_instances
 	# for the negative phase (sampling visible) we have just one layer
 	# visible_width, visible_height, crbm["num_channels"], num_instances
 	# in this phase we don't need to compute the pool layer
+	#
+	#for instance in 1: size(hid_probs,4)
+	#	for layer in 1: size(hid_probs,3)
+	#		for x_pool in 1:num_pools_x
+	#			for y_pool in 1:num_pools_y
+	#				x_indices = ((x_pool-1) * pool_size) + 1: (x_pool * pool_size)
+	#				y_indices = ((y_pool-1) * pool_size) + 1 : (y_pool * pool_size)
+	#				pool_sum = sum(exp_probs[x_indices, y_indices, layer, instance])
+	#				pool[x_pool, y_pool, layer, instance] = 1/ (1 + pool_sum)
+	#				hidden[x_indices, y_indices, layer, instance] = exp_probs[x_indices, y_indices, layer, instance] /(1+ pool_sum)				
+	#			end
+	#		end
+	#	end
+	#end
 
-	hidden = zeros(size(hid_probs))
-	# assume size of hidden layer is divisible by the pool size
-	num_pools_x = Int(floor(size(hid_probs,1) / pool_size))
-	num_pools_y = Int(floor(size(hid_probs,2) / pool_size))
-	pool = zeros(num_pools_x, num_pools_y, size(hid_probs,3), size(hid_probs,4))
 	
-	for instance in 1: size(hid_probs,4)
-		for layer in 1: size(hid_probs,3)
-			for x_pool in 1:num_pools_x
-				for y_pool in 1:num_pools_y
-					x_indices = ((x_pool-1) * pool_size) + 1: (x_pool * pool_size)
-					y_indices = ((y_pool-1) * pool_size) + 1 : (y_pool * pool_size)
-					pool_sum = sum(exp_probs[x_indices, y_indices, layer, instance])
-					pool[x_pool, y_pool, layer, instance] = 1/ (1 + pool_sum)
-					hidden[x_indices, y_indices, layer, instance] = exp_probs[x_indices, y_indices, layer, instance] /(1+ pool_sum)				
-				end
-			end
-		end
-	end
-
-	if sum(hidden) == NaN || sum(pool) == NaN
-		file = matopen("nan.mat", "w")
-		write(file, "hidden", hidden, "pool", pool)
-		close(file)
-	end
-
-	return hidden, pool
-
-end
-
-end
+	#if sum(hidden) == NaN || sum(pool) == NaN
+	#	file = matopen("nan.mat", "w")
+	#	write(file, "hidden", hidden, "pool", pool)
+	#	close(file)
+	#end
