@@ -23,7 +23,17 @@ function init(opts)
 	crbm["num_channels"] = num_input_channels
 	crbm["max_pooling"] = opts[:maxpool]
 	crbm["pool_size"] = opts[:poolsize]
-	crbm["opt"] = opts[:opt]	
+	crbm["opt"] = opts[:opt]
+	
+	if(crbm["opt"])
+		# use adam bu default
+		if(opts[:momentum])
+			crbm["opt_method"] = "momentum"
+		else
+			crbm["opt_method"] = "adam"
+		end
+	end
+	crbm["sigma"] = opts[:sigma]
 	return crbm
 end
 
@@ -39,7 +49,12 @@ function train(crbm_, batches; max_epochs = 1000)
 		grads = Dict()
 
 		for key in keys(crbm["weights"])
-			opt_params[key] = Adam(;lr=crbm["learning_rate"])
+			if(crbm["opt_method"] == "adam")
+				opt_params[key] = Adam(;lr=crbm["learning_rate"])
+			elseif(crbm["opt_method"] == "momentum")
+				opt_params[key] = Momentum(;lr=crbm["learning_rate"], gamma = 0.5)
+			end
+
 			grads[key] = zeros(size(crbm["weights"][key]))
 		end
 	end
@@ -48,6 +63,12 @@ function train(crbm_, batches; max_epochs = 1000)
 	hidden_height  = 1 + size(batches[1], 2) - crbm["num_hidden"]
 	crbm["hidden"] = zeros(hidden_width, hidden_height, crbm["num_filters"], num_instances)
 	
+	update_interval = Int(floor(max_epochs/20))
+
+	if update_interval > 20
+		update_interval = 20
+	end
+
 	for epoch in 1:max_epochs
 		batch_index = epoch % num_batches + 1
 		data = batches[batch_index]
@@ -97,22 +118,49 @@ function train(crbm_, batches; max_epochs = 1000)
 			
 			if crbm["opt"]
 				#print("caculating gradz \n")
-				grads["w"][:,:,1,filter_index] = -1 * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-				grads["b"][1,1,filter_index,1] = -1 * (sum_diff_probs ) / num_instances
+				w_grad = (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				b_grad = (sum_diff_probs ) / num_instances
+
+				#if !crbm["max_pooling"]
+				#	w_grad = -1 * w_grad
+				#	b_grad = -1 * b_grad
+				#end
+
+				grads["w"][:,:,1,filter_index] = w_grad 
+				grads["b"][1,1,filter_index,1] = b_grad
 			else
 				#print("doing things the old way\n")
 				# update for the filter
-				crbm["weights"]["w"][:,:,1,filter_index] += crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
-				crbm["weights"]["b"][1,1,filter_index, 1] += crbm["learning_rate"] * (sum_diff_probs ) / num_instances
+				w_grad = crbm["learning_rate"] * (sum_diff_associations / (crbm["num_hidden"]^2)) / num_instances
+				b_grad = crbm["learning_rate"] * (sum_diff_probs ) / num_instances
+
+				#if crbm["max_pooling"]
+				#	w_grad = -1 * w_grad
+				#	b_grad = -1 * b_grad
+				#end
+
+				crbm["weights"]["w"][:,:,1,filter_index] += w_grad
+				crbm["weights"]["b"][1,1,filter_index, 1] += b_grad
 			end	
 		end
 		
 		if crbm["opt"]
 			#print("updating weights the adam way \n")
-			grads["c"][1,1] = -1 * (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
+			c_grad = (sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances
+
+			#if !crbm["max_pooling"]
+			#	c_grad = -1 * c_grad
+			#end
+			grads["c"][1,1] = c_grad 
 			update!(crbm["weights"], grads, opt_params)
 		else
-			crbm["weights"]["c"][1,1] += crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
+			c_grad = crbm["learning_rate"] * ((sum(data - neg_visible_probs) / (size(data,1) * size(data, 2))) / num_instances)
+			
+			#if !crbm["max_pooling"]
+			#	c_grad = -1 * c_grad
+			#end
+
+			crbm["weights"]["c"][1,1] += c_grad 
 		end
 
 		error = sum((data - neg_visible_probs).^2)
@@ -120,7 +168,8 @@ function train(crbm_, batches; max_epochs = 1000)
 		
 		print("Epoch ", epoch, ": error is ", (batch_index, error), "\n")
 
-		if epoch % 20 == 0
+		
+		if epoch % update_interval == 0
 			filters = VISUALIZE_CRBM.visualize(crbm["weights"]["w"], Int(crbm["num_filters"]/2), 2, true; path="")
 			filename = string("epoch_", epoch, ".mat")
 			file = matopen(filename, "w")
@@ -198,7 +247,9 @@ function positive_phase_with_conv2(crbm, data)
 	if (crbm["max_pooling"])
 		#print("doin max poolin\n")
 		# max pooling crbm activations
+		energy = (1 / (crbm["sigma"]^2)) .* energy
 		pos_hidden_probs, pos_hidden_states, pos_pool_probs, pos_pool_states = max_pool(energy, crbm["pool_size"])
+		pos_hidden_probs = sigm(pos_hidden_probs)
 	else
 		#print("no doin max poolin\n")
 		# regular crbm activations
@@ -261,7 +312,9 @@ function negative_phase_with_conv2(crbm, pos_hidden_states)
 	if (crbm["max_pooling"])
 		#print("doin max poolin\n")
 		# max pooling crbm activations
+		energy = (1/ (crbm["sigma"]^2)) .* energy
 		neg_visible_probs, visible_states, neg_pool_probs, neg_pool_states = max_pool(energy, crbm["pool_size"])
+		neg_visible_probs = sigm(neg_visible_probs)
 	else
 		#print("no doin max poolin\n")
 		# regular crbm activations
@@ -304,8 +357,9 @@ function daydream(crbm, initial_visible, num_samples)
 	# takes samples in each reconstruction of the visible units
 	
 	samples  = ones(size(initial_visible,1), size(initial_visible, 2), size(initial_visible, 3), num_samples)
+	initial_visible = rand(size(initial_visible))
 	samples[:,:, :, 1] = initial_visible
-	
+
 	# keeps hidden units as binary but visible units as real (probabilities)
 	for row in 2 : num_samples
 		visible = reshape(samples[:,:, 1, row - 1], size(initial_visible, 1), size(initial_visible, 2), size(initial_visible, 3), 1)
@@ -323,18 +377,16 @@ function max_pool(energy, pool_size)
 	# multivariate sampling of hidden elements + computing pool group
 
 	# zero padding in order to avoid calc problems when size is not div. by pool size
-	off_x = (pool_size - (size(energy, 1) % pool_size))/ 2
-	off_y = (pool_size - (size(energy,2) % pool_size)) / 2
+	off_x = ((pool_size - (size(energy, 1) % pool_size)) % pool_size) / 2
+	off_y = ((pool_size - (size(energy,2) % pool_size)) % pool_size) / 2
 	energies = zeros(Int(off_x * 2) + size(energy,1), Int(off_y * 2) + size(energy,2), size(energy,3), size(energy,4))
 	energies[1 + Int(floor(off_x)):end - Int(ceil(off_x)), 1 + Int(floor(off_y)):end - Int(ceil(off_y)), :, :] = energy
 
 	hidden_s = zeros(size(energies))
 	hidden_p = zeros(size(energies))
-	# assume size of hidden layer is divisible by the pool size
 	num_pools_x = Int(size(energies,1) / pool_size) # number of horizontal divisions for each hidden unit group
 	num_pools_y = Int(size(energies,2) / pool_size)
 	
-
 	num_pools = num_pools_x * num_pools_y * size(energies,3) * size(energies,4)
 	# configs represent all possibilities for hidden unit values for each pooling unit
 	configs = zeros(pool_size^2 + 1, num_pools)
@@ -386,7 +438,6 @@ function max_pool(energy, pool_size)
 
 	pool_states = reshape(pool_states_row, num_pools_x, num_pools_y, size(energies,3), size(energies,4))
 	pool_probs = reshape(pool_probs_row, num_pools_x, num_pools_y, size(energies,3), size(energies,4))
-
 
 	return hidden_probs, hidden_states, pool_probs, pool_states
 end

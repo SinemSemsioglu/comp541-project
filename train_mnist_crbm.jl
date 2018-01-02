@@ -5,6 +5,7 @@ end
 
 include("crbm.jl")
 include("visualize_crbm.jl")
+include("read_image.jl")
 
 using Knet   
 using ArgParse # To work with command line argumands
@@ -32,6 +33,10 @@ function main(args=ARGS)
         ("--maxpool"; arg_type=Bool; default=true; help="if set to true uses probabilistic max pooling")
         ("--poolsize"; arg_type=Int; default=2; help="if maxpool is set to true this determines the width and height of the pooling groups")
         ("--opt"; arg_type=Bool; default=true; help="if set to true uses adam optimizer")
+        ("--adam"; arg_type=Bool; default=false; help="if adam will be used as opt method")
+        ("--momentum"; arg_type=Bool; default=false; help="if momentum will be used as opt method")
+        ("--sigma"; arg_type=Float64; default=1.0;help="idk")
+        ("--dataset"; arg_type=String; default="mnist"; help="dataset name")
     end
 	
 	 #=
@@ -43,8 +48,45 @@ function main(args=ARGS)
     =#
     o = parse_args(s; as_symbols=true)
     println("opts=",[(k,v) for (k,v) in o]...)
+    
+    if o[:dataset] == "mnist"
+        dtrn, dtst = loadmnistdata(o)
+    elseif o[:dataset] == "kyoto"
+        dtrn, dtst = loadkyotodata(o)
+    end
+    
+    crbm = CRBM.init(o)
+    #crbm = CRBM.init(12, 40, 1; winit = 0.1, learning_rate = 0.5, target_sparsity= 0.003, sparsity_lr = 4)
+	trained_crbm = CRBM.train(crbm, dtrn; max_epochs = o[:epochs])
 	
-	# load the mnist data
+	test_sample = dtst[1][:,:,:,2]
+	num_samples = 20
+	generated_samples = CRBM.daydream(trained_crbm, test_sample, num_samples)
+	
+    # assuming -- hidden is set as an even number
+    #VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], 5, 4, true; path="filters.mat")
+	VISUALIZE_CRBM.visualize(trained_crbm["weights"]["w"], Int(o[:numfilters]/2), 2, true; path="pool_filters.mat")
+    VISUALIZE_CRBM.visualize(generated_samples, Int(num_samples/2), 2, false; path="pool_generated.mat")
+    
+    file = matopen("final_weights.mat", "w")
+    write(file, "weights", trained_crbm["weights"])
+    close(file)
+end
+
+function loadkyotodata(o)
+    path = "../Data/natural_images/" # will be taken as an argument later since it depends on file organization
+    atype =(gpu()>=0 ? KnetArray{Float64} : Array{Float64})
+    images = READ_IMAGES.get_square_color_images(path,1,200,1, atype)
+    #images .-= mean(images, (1,2,3))
+    images .-= mean(images, 4)
+    images *= 255
+
+    dtrn = minibatch(images, o[:batchsize])
+    return dtrn, dtrn
+end
+
+function loadmnistdata(o)
+    	# load the mnist data
     xtrnraw, ytrnraw, xtstraw, ytstraw = loaddata()
     
     inputSize = 28
@@ -60,23 +102,8 @@ function main(args=ARGS)
 	
 	dtrn = minibatch(xtrn, o[:batchsize])
     dtst = minibatch(xtst, o[:batchsize])
-    
-    crbm = CRBM.init(o)
-    #crbm = CRBM.init(12, 40, 1; winit = 0.1, learning_rate = 0.5, target_sparsity= 0.003, sparsity_lr = 4)
-	trained_crbm = CRBM.train(crbm, dtrn; max_epochs = o[:epochs])
-	
-	test_sample = dtst[1][:,:,:,50]
-	num_samples = 20
-	generated_samples = CRBM.daydream(trained_crbm, test_sample, num_samples)
-	
-    # assuming -- hidden is set as an even number
-    #VISUALIZE_CRBM.visualize(trained_crbm["weights"][1], 5, 4, true; path="filters.mat")
-	VISUALIZE_CRBM.visualize(trained_crbm["weights"]["w"], Int(o[:numfilters]/2), 2, true; path="pool_filters.mat")
-    VISUALIZE_CRBM.visualize(generated_samples, Int(num_samples/2), 2, false; path="pool_generated.mat")
-    
-    file = matopen("final_weights.mat", "w")
-    write(file, "weights", trained_crbm["weights"])
-    close(file)
+
+    return (dtrn, dtst)
 end
 
 function loaddata()
